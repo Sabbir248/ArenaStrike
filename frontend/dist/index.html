@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArenaStrike | Tactical Battleground</title>
+    <link rel="stylesheet" href="./css/styles.css">
+</head>
+<body>
+    <section id="lobby-screen" aria-label="Lobby setup">
+        <div class="lobby-card">
+            <strong>ArenaStrike</strong>
+            <h1>Enter the Battleground</h1>
+            <form id="lobby-form">
+                <label for="display-name">Display name</label>
+                <input id="display-name" name="displayName" maxlength="32" required placeholder="Operator">
+                <label for="room-code">Room code (leave empty to create)</label>
+                <input id="room-code" name="roomCode" maxlength="6" placeholder="ABC123">
+                <label for="map">Map</label>
+                <select id="map" name="map">
+                    <option value="MAP_1">Map 1</option>
+                    <option value="MAP_2">Map 2</option>
+                </select>
+                <label for="player-limit">Player limit</label>
+                <input id="player-limit" name="playerLimit" type="number" min="2" max="10" value="2">
+                <label for="weapon">Starting weapon</label>
+                <select id="weapon" name="weapon">
+                    <option value="PISTOL">Pistol — Desert Eagle</option>
+                    <option value="ASSAULT_RIFLE" selected>Assault Rifle — AKM</option>
+                    <option value="SMG">SMG — UMP</option>
+                    <option value="SHOTGUN">Shotgun — S686</option>
+                    <option value="BOLT_ACTION_RIFLE">Bolt-Action Rifle — AWM</option>
+                </select>
+                <button type="submit">Create / Join Room</button>
+                <p id="lobby-error" role="alert"></p>
+            </form>
+        </div>
+    </section>
+    <main id="game-shell" aria-label="ArenaStrike game">
+        <section id="hud" aria-live="polite">
+            <strong>ArenaStrike</strong>
+            <span id="connection-status">Loading 3D scene...</span>
+            <span id="room-status">Room: not connected</span>
+            <span id="match-timer">Waiting for players</span>
+        </section>
+        <canvas id="game-canvas" aria-label="3D game viewport"></canvas>
+        <div id="crosshair" aria-hidden="true">
+            <span></span><span></span><span></span><span></span>
+        </div>
+        <aside id="kill-feed" aria-live="polite" aria-label="Live kill feed"></aside>
+        <section id="match-over" hidden aria-live="assertive"></section>
+        <p id="controls-hint">W forward, S backward, A left, D right. Right-click ADS. Left-click fire.</p>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js"
+            }
+        }
+    </script>
+    <script type="module" src="./js/main.js"></script>
+</body>
+</html>

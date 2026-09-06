@@ -1,0 +1,10 @@
+{
+  "name": "arenastrike-frontend",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  }
+}

@@ -1,0 +1,63 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.5'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+group = 'com.arenastrike'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+tasks.register('prepareFrontend', Exec) {
+    workingDir '../frontend'
+    def npmCommand = org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'npm.cmd' : 'npm'
+    commandLine npmCommand, 'run', 'build'
+}
+
+tasks.named('processResources') {
+    dependsOn tasks.named('prepareFrontend')
+    from('../frontend/dist') {
+        into 'static'
+    }
+    from('../assets') {
+        into 'static/assets'
+    }
+}
+
+dependencies {
+    // REST APIs and the embedded web server.
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    // STOMP messaging over WebSocket and SockJS fallback support.
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+    // Persistence support for game accounts, matches, and state.
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+    // Bean validation for request and entity validation.
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // MySQL connector is loaded only when the application runs.
+    runtimeOnly 'com.mysql:mysql-connector-j'
+
+    // Versioned MySQL schema migrations.
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-mysql'
+
+    // Standard Spring Boot test support.
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
