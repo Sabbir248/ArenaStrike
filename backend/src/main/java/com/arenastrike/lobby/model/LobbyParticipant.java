@@ -1,6 +1,6 @@
 package com.arenastrike.lobby.model;
 
-import com.arenastrike.player.model.User;
+import com.arenastrike.player.model.Player;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -18,20 +18,25 @@ public class LobbyParticipant {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    private Player user;
 
     @Column(nullable = false, updatable = false)
     private Instant joinedAt;
 
+    @Column(name = "is_ready", nullable = false)
+    private boolean isReady;
+
     protected LobbyParticipant() {
     }
 
-    public LobbyParticipant(User user) {
+    public LobbyParticipant(Player user) {
         this.user = user;
         this.joinedAt = Instant.now();
     }
 
     void assignLobby(Lobby lobby) { this.lobby = lobby; }
-    public User getUser() { return user; }
+    public Player getUser() { return user; }
     public Instant getJoinedAt() { return joinedAt; }
+    public boolean isReady() { return isReady; }
+    public void setReady(boolean ready) { this.isReady = ready; }
 }

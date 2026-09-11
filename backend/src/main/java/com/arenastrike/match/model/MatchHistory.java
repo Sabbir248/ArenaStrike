@@ -2,6 +2,8 @@ package com.arenastrike.match.model;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "match_history")
@@ -10,36 +12,45 @@ public class MatchHistory {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 6)
+    @Column(name = "room_id", nullable = false, length = 6)
     private String roomId;
 
-    @Column(nullable = false, length = 32)
+    @Column(name = "map_name", nullable = false, length = 32)
     private String mapName;
 
-    @Column(nullable = false)
-    private Long winnerId;
+    @Column(name = "duration", nullable = false, updatable = false)
+    private int duration;
 
-    @Column(nullable = false, updatable = false)
-    private int durationSeconds;
+    @Column(name = "played_at", nullable = false, updatable = false)
+    private Instant playedAt;
 
-    @Column(nullable = false, updatable = false)
-    private Instant endedAt;
+    @Column(name = "winner_player_id")
+    private Long winnerPlayerId;
+
+    @OneToMany(mappedBy = "match", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PlayerMatchStat> playerStats = new ArrayList<>();
 
     protected MatchHistory() {
     }
 
-    public MatchHistory(String roomId, String mapName, Long winnerId, int durationSeconds) {
+    public MatchHistory(String roomId, String mapName, int duration, Long winnerPlayerId) {
         this.roomId = roomId;
         this.mapName = mapName;
-        this.winnerId = winnerId;
-        this.durationSeconds = durationSeconds;
-        this.endedAt = Instant.now();
+        this.duration = duration;
+        this.playedAt = Instant.now();
+        this.winnerPlayerId = winnerPlayerId;
     }
 
-    @PrePersist
-    void initializeEndedAt() {
-        if (endedAt == null) {
-            endedAt = Instant.now();
-        }
+    public void addPlayerStat(PlayerMatchStat stat) {
+        playerStats.add(stat);
+        stat.setMatch(this);
     }
+
+    public Long getId() { return id; }
+    public String getRoomId() { return roomId; }
+    public String getMapName() { return mapName; }
+    public int getDuration() { return duration; }
+    public Instant getPlayedAt() { return playedAt; }
+    public Long getWinnerPlayerId() { return winnerPlayerId; }
+    public List<PlayerMatchStat> getPlayerStats() { return playerStats; }
 }

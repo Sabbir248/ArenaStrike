@@ -15,6 +15,9 @@ public class Lobby {
     @Column(name = "room_code", nullable = false, length = 6, updatable = false)
     private String roomCode;
 
+    @Column(name = "room_name", nullable = false, length = 64)
+    private String roomName;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private GameMap map;
@@ -36,8 +39,9 @@ public class Lobby {
     protected Lobby() {
     }
 
-    public Lobby(String roomCode, GameMap map, int playerLimit) {
+    public Lobby(String roomCode, String roomName, GameMap map, int playerLimit) {
         this.roomCode = roomCode;
+        this.roomName = roomName;
         this.map = map;
         this.playerLimit = playerLimit;
         this.createdAt = Instant.now();
@@ -60,6 +64,7 @@ public class Lobby {
 
     public Long getId() { return id; }
     public String getRoomCode() { return roomCode; }
+    public String getRoomName() { return roomName; }
     public GameMap getMap() { return map; }
     public int getPlayerLimit() { return playerLimit; }
     public LobbyStatus getStatus() { return status; }

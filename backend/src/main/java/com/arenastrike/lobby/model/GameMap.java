@@ -5,8 +5,8 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import java.util.Locale;
 
 public enum GameMap {
-    MAP_1,
-    MAP_2;
+    MAP_WAREHOUSE,
+    MAP_BUNKER;
 
     @JsonCreator
     public static GameMap fromJson(String value) {

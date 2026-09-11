@@ -15,19 +15,18 @@ public final class GameRoomState {
     private static final double BASE_SPEED = 7.0;
     private static final double MOVEMENT_TOLERANCE = 0.05;
     private static final double PLAYER_RADIUS = 0.45;
-    private static final List<Obstacle> MAP_1_OBSTACLES = List.of(
+    private static final List<Obstacle> WAREHOUSE_OBSTACLES = List.of(
             new Obstacle(-28, -18, -8, 2), new Obstacle(28, 18, -8, 2),
             new Obstacle(-28, -18, 10, 14), new Obstacle(28, 18, 10, 14),
             new Obstacle(-9.5, -6.5, 24.5, 27.5), new Obstacle(6.5, 9.5, -27.5, -24.5));
-    private static final List<Obstacle> MAP_2_OBSTACLES = List.of(
+    private static final List<Obstacle> BUNKER_OBSTACLES = List.of(
             new Obstacle(-39, -21, -30, -26), new Obstacle(21, 39, 26, 30),
             new Obstacle(-24, -20, 19, 37), new Obstacle(20, 24, -37, -19));
     private final String roomCode;
     private final GameMap map;
     private final int maxPlayers;
     private final ConcurrentHashMap<Long, PlayerState> players = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, Integer> verifiedKills = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, Integer> headshotKills = new ConcurrentHashMap<>();
+    private final Scoreboard scoreboard = new Scoreboard();
     private final ConcurrentHashMap<Long, PlayerWeaponState> weaponStates = new ConcurrentHashMap<>();
     private final AtomicLong tick = new AtomicLong();
     private volatile RoomState roomState = RoomState.LOBBY;
@@ -47,10 +46,9 @@ public final class GameRoomState {
         if (players.putIfAbsent(player.playerId(), player) != null) {
             throw new GameStateConflictException("Player is already active in this room");
         }
-        verifiedKills.putIfAbsent(player.playerId(), 0);
-        headshotKills.putIfAbsent(player.playerId(), 0);
+        scoreboard.addPlayer(player.playerId());
         weaponStates.putIfAbsent(player.playerId(), new PlayerWeaponState(
-                WeaponType.valueOf(player.currentWeapon())));
+                WeaponFactory.get(player.currentWeapon())));
     }
 
     public synchronized void updatePlayer(UpdatePlayerStateCommand update) {
@@ -59,69 +57,64 @@ public final class GameRoomState {
             if (current == null) {
                 throw new GameStateConflictException("Player is not active in this room");
             }
-            Vector3 safePosition = validatePosition(current.position(), update.position(), update.stance(), 0.05);
+            Vector3 safePosition = validatePosition(current.position(), update.position(), update.state(), 0.05);
             return new PlayerState(current.playerId(), current.displayName(), safePosition,
-                    update.rotation(), current.health(), update.currentWeapon(), update.stance());
+                    update.rotation(), current.health(), update.currentWeapon(), update.state());
         });
     }
 
-    public synchronized void applyInput(Long playerId, PlayerInputCommand input, double deltaSeconds,
+    public synchronized void applyMovement(Long playerId, PlayerMovementPacket input, double deltaSeconds,
                            ConcurrentHashMap<Long, Double> verticalVelocity) {
         if (roomState == RoomState.FINISHED) {
             return;
         }
         players.computeIfPresent(playerId, (id, current) -> {
-            double length = Math.hypot(input.forward(), input.strafe());
-            double forward = length > 1 ? input.forward() / length : input.forward();
-            double strafe = length > 1 ? input.strafe() / length : input.strafe();
-            double yaw = input.rotation().y();
-            double nextX = current.position().x()
-                    + (-Math.sin(yaw) * forward + Math.cos(yaw) * strafe) * BASE_SPEED * deltaSeconds;
-            double nextZ = current.position().z()
-                    + (-Math.cos(yaw) * forward - Math.sin(yaw) * strafe) * BASE_SPEED * deltaSeconds;
-            nextX = Math.max(-60, Math.min(60, nextX));
-            nextZ = Math.max(-60, Math.min(60, nextZ));
             double velocity = verticalVelocity.getOrDefault(id, 0.0);
-            if (input.jump() && current.stance() != PlayerStance.PRONE
+            if (input.isJumping() && current.state() != MovementState.PRONE
                     && current.position().y() <= 0.01) {
                 velocity = 6.5;
             }
             velocity -= 18.0 * deltaSeconds;
-            double nextY = current.position().y() + velocity * deltaSeconds;
-            if (nextY < 0) {
-                nextY = 0;
+            double expectedY = current.position().y() + velocity * deltaSeconds;
+            if (expectedY < 0) {
+                expectedY = 0;
                 velocity = 0;
             }
-            PlayerStance stance = velocity != 0 ? PlayerStance.JUMPING : input.stance();
-            Vector3 safePosition = validatePosition(current.position(),
-                    new Vector3(nextX, nextY, nextZ), stance, deltaSeconds);
+            
+            Vector3 clientProposed = new Vector3(input.x(), expectedY, input.z());
+            MovementState state = velocity != 0 ? MovementState.JUMPING : input.state();
+            
+            Vector3 safePosition = validatePosition(current.position(), clientProposed, state, deltaSeconds);
             verticalVelocity.put(id, velocity);
             return new PlayerState(id, current.displayName(),
                     safePosition, input.rotation(),
-                    current.health(), input.currentWeapon(), stance);
+                    current.health(), input.currentWeapon(), state);
         });
     }
 
     private Vector3 validatePosition(Vector3 oldPosition, Vector3 requested,
-                                     PlayerStance stance, double deltaSeconds) {
+                                     MovementState state, double deltaSeconds) {
         double dx = requested.x() - oldPosition.x();
-        double dy = requested.y() - oldPosition.y();
         double dz = requested.z() - oldPosition.z();
-        double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        double multiplier = switch (stance) {
+        double distance = Math.sqrt(dx * dx + dz * dz);
+        
+        double multiplier = switch (state) {
             case STANDING -> 1.0;
-            case CROUCHING -> 0.6;
-            case PRONE -> 0.3;
+            case CROUCHING -> 0.5;
+            case PRONE -> 0.2;
             case JUMPING -> 0.85;
         };
         double maxDistance = BASE_SPEED * multiplier * deltaSeconds + MOVEMENT_TOLERANCE;
+        
         if (distance > maxDistance) {
             double scale = maxDistance / distance;
             requested = new Vector3(oldPosition.x() + dx * scale,
-                    oldPosition.y() + dy * scale, oldPosition.z() + dz * scale);
+                    requested.y(), oldPosition.z() + dz * scale);
         }
+        
         requested = new Vector3(Math.max(-60, Math.min(60, requested.x())),
                 Math.max(0, requested.y()), Math.max(-60, Math.min(60, requested.z())));
+                
         return isBlocked(requested) ? oldPosition : requested;
     }
 
@@ -167,24 +160,22 @@ public final class GameRoomState {
     }
 
     private List<Obstacle> obstacles() {
-        return map == GameMap.MAP_1 ? MAP_1_OBSTACLES : MAP_2_OBSTACLES;
+        return map == GameMap.MAP_WAREHOUSE ? WAREHOUSE_OBSTACLES : BUNKER_OBSTACLES;
     }
 
     public synchronized void removePlayer(Long playerId) {
         players.remove(playerId);
-        verifiedKills.remove(playerId);
-        headshotKills.remove(playerId);
+        scoreboard.removePlayer(playerId);
     }
 
     public synchronized PlayerState removePlayerAndReturn(Long playerId) {
         PlayerState removed = players.remove(playerId);
-        verifiedKills.remove(playerId);
-        headshotKills.remove(playerId);
+        scoreboard.removePlayer(playerId);
         weaponStates.remove(playerId);
         return removed;
     }
 
-    public synchronized PlayerWeaponState weaponState(Long playerId, WeaponType weapon) {
+    public synchronized PlayerWeaponState weaponState(Long playerId, Weapon weapon) {
         PlayerWeaponState current = weaponStates.get(playerId);
         if (current == null || current.weapon() != weapon) {
             current = new PlayerWeaponState(weapon);
@@ -204,7 +195,7 @@ public final class GameRoomState {
         return completed;
     }
 
-    public synchronized AmmoStateEvent beginReload(Long playerId, WeaponType weapon, long now) {
+    public synchronized AmmoStateEvent beginReload(Long playerId, Weapon weapon, long now) {
         PlayerWeaponState state = weaponState(playerId, weapon);
         state.beginReload(now);
         return new AmmoStateEvent("AMMO_STATE", String.valueOf(playerId),
@@ -233,20 +224,25 @@ public final class GameRoomState {
             return new PlayerState(
                 current.playerId(), current.displayName(), current.position(),
                 current.rotation(), health,
-                current.currentWeapon(), current.stance());
+                current.currentWeapon(), current.state());
         });
+        if (died[0]) {
+            scoreboard.addDeath(playerId);
+        }
         return remainingHealth[0];
     }
 
+    public void recordDamageDealt(Long attackerId, int damage) {
+        scoreboard.addDamage(attackerId, damage);
+    }
+
     public void recordKill(Long killerId, HitLocation location) {
-        verifiedKills.computeIfPresent(killerId, (id, count) -> count + 1);
-        if (location == HitLocation.HEAD) {
-            headshotKills.computeIfPresent(killerId, (id, count) -> count + 1);
-        }
+        scoreboard.addKill(killerId, location == HitLocation.HEAD);
     }
 
     public int killsFor(Long playerId) {
-        return verifiedKills.getOrDefault(playerId, 0);
+        Scoreboard.PlayerScore score = scoreboard.getScore(playerId);
+        return score == null ? 0 : score.getKills();
     }
 
     public synchronized void startIfFull(int playerLimit) {
@@ -262,8 +258,8 @@ public final class GameRoomState {
         }
     }
 
-    public synchronized MatchSummary finishIfExpired() {
-        if (roomState != RoomState.ACTIVE || System.currentTimeMillis() < matchEndsAtMillis) {
+    public synchronized MatchSummary forceFinishMatch() {
+        if (roomState != RoomState.ACTIVE) {
             return null;
         }
         return finishMatch();
@@ -278,10 +274,15 @@ public final class GameRoomState {
 
     private MatchSummary finishMatch() {
         roomState = RoomState.FINISHED;
-        List<MatchSummary.PlayerResult> results = players.values().stream()
-                .map(player -> new MatchSummary.PlayerResult(player.playerId(), player.displayName(),
-                        killsFor(player.playerId()), player.health() == 0 ? 1 : 0,
-                        headshotKills.getOrDefault(player.playerId(), 0)))
+        List<MatchSummary.PlayerResult> results = scoreboard.getAllScores().stream()
+                .map(score -> {
+                    PlayerState state = players.get(score.getPlayerId());
+                    String name = state != null ? state.displayName() : "Unknown";
+                    String weaponUsed = state != null ? state.currentWeapon() : "PISTOL";
+                    return new MatchSummary.PlayerResult(score.getPlayerId(), name,
+                            score.getKills(), score.getDeaths(),
+                            score.getHeadshotKills(), score.getDamageDealt(), weaponUsed);
+                })
                 .sorted(Comparator.comparingInt(MatchSummary.PlayerResult::kills).reversed()
                         .thenComparingInt(MatchSummary.PlayerResult::deaths)
                         .thenComparing(MatchSummary.PlayerResult::playerId))
@@ -297,16 +298,17 @@ public final class GameRoomState {
                 .toList();
         Long winnerId = winnerIds.isEmpty() ? null : winnerIds.get(0);
         PlayerState winner = winnerId == null ? null : players.get(winnerId);
-        return new MatchSummary(roomCode, roomState, winnerId,
+        return new MatchSummary("MATCH_END", roomCode, roomState, winnerId,
                 winnerIds,
                 winner == null ? null : winner.displayName(),
                 winnerId == null ? 0 : killsFor(winnerId), map.name(), results);
     }
 
     public synchronized RoomGameState snapshot() {
-        long remainingSeconds = roomState == RoomState.ACTIVE
-                ? Math.max(0, (matchEndsAtMillis - System.currentTimeMillis() + 999) / 1000)
-                : 0;
+        return snapshot(0L);
+    }
+
+    public synchronized RoomGameState snapshot(long remainingSeconds) {
         return new RoomGameState(roomCode, tick.incrementAndGet(),
                 players.values().stream()
                         .sorted(Comparator.comparing(PlayerState::playerId))

@@ -1,12 +1,11 @@
 package com.arenastrike.player.service;
 
 import com.arenastrike.match.model.MatchHistory;
+import com.arenastrike.match.model.PlayerMatchStat;
 import com.arenastrike.match.repository.MatchHistoryRepository;
 import com.arenastrike.player.dto.PlayerStatsResponse;
-import com.arenastrike.player.model.PlayerStats;
-import com.arenastrike.player.model.User;
-import com.arenastrike.player.repository.PlayerStatsRepository;
-import com.arenastrike.player.repository.UserRepository;
+import com.arenastrike.player.model.Player;
+import com.arenastrike.player.repository.PlayerRepository;
 import com.arenastrike.realtime.dto.MatchSummary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,33 +16,38 @@ import java.util.ArrayList;
 
 @Service
 public class StatsService {
-    private final UserRepository userRepository;
-    private final PlayerStatsRepository playerStatsRepository;
+    private final PlayerRepository playerRepository;
     private final MatchHistoryRepository matchHistoryRepository;
 
-    public StatsService(UserRepository userRepository, PlayerStatsRepository playerStatsRepository,
+    public StatsService(PlayerRepository playerRepository,
                         MatchHistoryRepository matchHistoryRepository) {
-        this.userRepository = userRepository;
-        this.playerStatsRepository = playerStatsRepository;
+        this.playerRepository = playerRepository;
         this.matchHistoryRepository = matchHistoryRepository;
     }
 
     @Transactional
     public void recordCompletedMatch(MatchSummary summary, int durationSeconds) {
-        List<PlayerStats> updatedStats = new ArrayList<>(summary.results().size());
+        MatchHistory match = new MatchHistory(
+                summary.roomId(), summary.map(), durationSeconds, summary.winnerId());
+
+        List<Player> updatedPlayers = new ArrayList<>(summary.results().size());
+
         summary.results().forEach(result -> {
-            User user = userRepository.findById(result.playerId())
+            Player player = playerRepository.findById(result.playerId())
                     .orElseThrow(() -> new IllegalStateException(
-                            "Participant user not found: " + result.playerId()));
-            PlayerStats stats = playerStatsRepository.findById(user.getId())
-                    .orElseGet(() -> new PlayerStats(user));
-            stats.recordMatch(result.kills(), result.deaths(),
-                    summary.winnerIds().contains(result.playerId()), result.headshotKills());
-            updatedStats.add(stats);
+                            "Participant player not found: " + result.playerId()));
+            
+            boolean won = summary.winnerIds() != null && summary.winnerIds().contains(result.playerId());
+            player.recordMatch(result.kills(), result.deaths(), won);
+            updatedPlayers.add(player);
+
+            PlayerMatchStat stat = new PlayerMatchStat(
+                    player, result.kills(), result.damageDealt(), result.weaponUsed());
+            match.addPlayerStat(stat);
         });
-        playerStatsRepository.saveAll(updatedStats);
-        matchHistoryRepository.save(new MatchHistory(
-                summary.roomId(), summary.map(), summary.winnerId(), durationSeconds));
+
+        playerRepository.saveAll(updatedPlayers);
+        matchHistoryRepository.save(match);
     }
 
     @Async("dbThreadPool")
@@ -53,24 +57,22 @@ public class StatsService {
     }
 
     @Transactional(readOnly = true)
-    public PlayerStatsResponse statsFor(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-        PlayerStats stats = playerStatsRepository.findById(userId)
-                .orElseGet(() -> new PlayerStats(user));
-        return response(user, stats);
+    public PlayerStatsResponse statsFor(Long playerId) {
+        Player player = playerRepository.findById(playerId)
+                .orElseThrow(() -> new IllegalArgumentException("Player not found"));
+        return response(player);
     }
 
     @Transactional(readOnly = true)
     public List<PlayerStatsResponse> leaderboard() {
-        return playerStatsRepository.findAllByOrderByTotalKillsDescWinsDesc().stream()
-                .map(stats -> response(stats.getUser(), stats))
+        return playerRepository.findAllByOrderByWinsDescTotalKillsDesc().stream()
+                .map(this::response)
                 .toList();
     }
 
-    private PlayerStatsResponse response(User user, PlayerStats stats) {
-        return new PlayerStatsResponse(user.getId(), user.getUsername(),
-                stats.getTotalMatches(), stats.getWins(), stats.getTotalKills(),
-                stats.getTotalDeaths(), stats.getKdr(), stats.getHeadshotKills());
+    private PlayerStatsResponse response(Player player) {
+        return new PlayerStatsResponse(player.getId(), player.getUsername(),
+                player.getMatchesPlayed(), player.getWins(), player.getTotalKills(),
+                player.getTotalDeaths(), player.getKdr(), 0); // Headshots can be omitted or added to Player if needed later
     }
 }

@@ -3,6 +3,7 @@ package com.arenastrike.realtime.dto;
 import java.util.List;
 
 public record MatchSummary(
+        String type,
         String roomId,
         RoomState state,
         Long winnerId,
@@ -13,6 +14,6 @@ public record MatchSummary(
         List<PlayerResult> results
 ) {
     public record PlayerResult(Long playerId, String displayName, int kills, int deaths,
-                               int headshotKills) {
+                               int headshotKills, int damageDealt, String weaponUsed) {
     }
 }

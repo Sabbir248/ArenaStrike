@@ -1,0 +1,2 @@
+ALTER TABLE lobbies ADD COLUMN room_name VARCHAR(64) NOT NULL DEFAULT 'Arena Lobby';
+ALTER TABLE lobby_participants ADD COLUMN is_ready BOOLEAN NOT NULL DEFAULT FALSE;

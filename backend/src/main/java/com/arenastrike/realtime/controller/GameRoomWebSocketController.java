@@ -28,7 +28,7 @@ public class GameRoomWebSocketController {
     @MessageMapping("/rooms/{roomCode}/input")
     public void updateState(
             @DestinationVariable String roomCode,
-            PlayerInputCommand command) {
+            PlayerMovementPacket command) {
         gameStateService.enqueueInput(roomCode, command);
     }
 

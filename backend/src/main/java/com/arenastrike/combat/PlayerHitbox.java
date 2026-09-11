@@ -1,14 +1,14 @@
 package com.arenastrike.combat;
 
 import com.arenastrike.realtime.dto.PlayerState;
-import com.arenastrike.realtime.dto.PlayerStance;
+import com.arenastrike.realtime.dto.MovementState;
 import com.arenastrike.realtime.dto.Vector3;
 
 public record PlayerHitbox(
         Long playerId,
         Vector3 position,
         double facingRadians,
-        PlayerStance stance,
+        MovementState state,
         double groundY,
         double height
 ) {
@@ -17,7 +17,7 @@ public record PlayerHitbox(
     public static final double HALF_DEPTH = 0.25;
 
     public PlayerHitbox {
-        if (playerId == null || position == null || stance == null
+        if (playerId == null || position == null || state == null
                 || !Double.isFinite(facingRadians) || !Double.isFinite(groundY)
                 || !Double.isFinite(height) || height <= 0) {
             throw new IllegalArgumentException("Invalid player hitbox");
@@ -26,13 +26,13 @@ public record PlayerHitbox(
 
     public static PlayerHitbox from(PlayerState player) {
         double groundY = player.position().y();
-        double height = effectiveHeight(player.stance(), BASE_HEIGHT);
+        double height = effectiveHeight(player.state(), BASE_HEIGHT);
         return new PlayerHitbox(player.playerId(), player.position(), player.rotation().y(),
-                player.stance(), groundY, height);
+                player.state(), groundY, height);
     }
 
-    public static double effectiveHeight(PlayerStance stance, double baseHeight) {
-        return baseHeight * stance.heightScale();
+    public static double effectiveHeight(MovementState state, double baseHeight) {
+        return baseHeight * state.heightScale();
     }
 
     public double top() {
@@ -51,10 +51,10 @@ public record PlayerHitbox(
         if (elevation < 0 || elevation > height) {
             return HitLocation.MISS;
         }
-        if (stance == PlayerStance.PRONE && localZ <= 0) {
+        if (state == MovementState.PRONE && localZ <= 0) {
             return HitLocation.HEAD;
         }
-        if (stance == PlayerStance.PRONE) {
+        if (state == MovementState.PRONE) {
             return elevation >= 0.30 ? HitLocation.TORSO : HitLocation.LIMB;
         }
         return elevation >= height * 0.8 ? HitLocation.HEAD

@@ -1,5 +1,6 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js";
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/utils/SkeletonUtils.js";
 import { MODEL_BASE_URL } from "../config.js";
 
 const WEAPON_MODEL_URLS = {
@@ -10,15 +11,51 @@ const WEAPON_MODEL_URLS = {
     BOLT_ACTION_RIFLE: `${MODEL_BASE_URL}/AWM.glb`
 };
 
+const WEAPON_CONFIGS = {
+    ASSAULT_RIFLE: {
+        position: new THREE.Vector3(0.22, -0.20, -0.38),
+        rotation: new THREE.Euler(0, 0.05, 0),
+        scale: new THREE.Vector3(0.3, 0.3, 0.3),
+        adsPosition: new THREE.Vector3(0, -0.15, -0.30)
+    },
+    SHOTGUN: {
+        position: new THREE.Vector3(0.24, -0.22, -0.42),
+        rotation: new THREE.Euler(0, -Math.PI / 2, 0),
+        scale: new THREE.Vector3(0.3, 0.3, 0.3),
+        adsPosition: new THREE.Vector3(0, -0.15, -0.30)
+    },
+    PISTOL: {
+        position: new THREE.Vector3(0.20, -0.20, -0.38),
+        rotation: new THREE.Euler(0, 0.05, 0),
+        scale: new THREE.Vector3(0.3, 0.3, 0.3),
+        adsPosition: new THREE.Vector3(0, -0.12, -0.25)
+    },
+    SMG: {
+        position: new THREE.Vector3(0.22, -0.20, -0.38),
+        rotation: new THREE.Euler(0, 0.05, 0),
+        scale: new THREE.Vector3(0.3, 0.3, 0.3),
+        adsPosition: new THREE.Vector3(0, -0.15, -0.30)
+    },
+    BOLT_ACTION_RIFLE: {
+        position: new THREE.Vector3(0.25, -0.22, -0.40),
+        rotation: new THREE.Euler(0, 0.05, 0),
+        scale: new THREE.Vector3(0.3, 0.3, 0.3),
+        adsPosition: new THREE.Vector3(0, -0.15, -0.30)
+    }
+};
+
 export class ArenaStrikeRenderer {
     constructor(canvas) {
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x081018);
-        this.scene.fog = new THREE.Fog(0x081018, 35, 150);
+        this.scene.background = new THREE.Color(0x101520);
+        this.scene.fog = new THREE.FogExp2(0x101520, 0.015);
         this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, 250);
         this.camera.position.set(0, 1.7, 8);
         this.camera.rotation.order = "YXZ";
+        this.viewmodelScene = new THREE.Scene();
+        this.viewmodelCamera = new THREE.PerspectiveCamera(70, 1, 0.01, 100);
         this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        this.renderer.autoClear = false;
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.loader = new GLTFLoader();
@@ -31,6 +68,8 @@ export class ArenaStrikeRenderer {
         this.hitMarkerTimeout = null;
         this.weaponRecoil = 0;
         this.aiming = false;
+        this.lastCameraPos = new THREE.Vector3();
+        this.bobPhase = 0;
         this.raycastTargets = [];
         this.colliders = [];
         this.addLighting();
@@ -50,18 +89,18 @@ export class ArenaStrikeRenderer {
     addUrbanCourtyardMap() {
         const ground = new THREE.Mesh(
             new THREE.PlaneGeometry(120, 120),
-            new THREE.MeshStandardMaterial({ color: 0x30363a, roughness: 0.9 })
+            this.getMaterial("concrete", 0x30363a)
         );
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
         this.scene.add(ground);
 
-        const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x171b1e, roughness: 0.95 });
+        const roadMaterial = this.getMaterial("concrete", 0x171b1e);
         this.addMapBox(0, 0.015, 0, 18, 0.03, 120, roadMaterial, false);
         this.addMapBox(0, 0.02, 0, 120, 0.03, 16, roadMaterial, false);
 
-        const buildingMaterial = new THREE.MeshStandardMaterial({ color: 0x687178, roughness: 0.82 });
-        const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x343c42, roughness: 0.9 });
+        const buildingMaterial = this.getMaterial("concrete", 0x687178);
+        const roofMaterial = this.getMaterial("metal", 0x343c42);
         [
             [-37, 5, -34, 24, 10, 20], [37, 5, -34, 24, 10, 20],
             [-37, 5, 34, 24, 10, 20], [37, 5, 34, 24, 10, 20],
@@ -71,7 +110,7 @@ export class ArenaStrikeRenderer {
             this.addMapBox(x, height + 0.15, z, width + 0.5, 0.3, depth + 0.5, roofMaterial, false);
         });
 
-        const coverMaterial = new THREE.MeshStandardMaterial({ color: 0x9b7654, roughness: 0.95 });
+        const coverMaterial = this.getMaterial("wood", 0x9b7654);
         [
             [-24, 1, -12, 8, 2, 2], [24, 1, -12, 8, 2, 2],
             [-24, 1, 12, 8, 2, 2], [24, 1, 12, 8, 2, 2],
@@ -80,34 +119,40 @@ export class ArenaStrikeRenderer {
             this.addMapBox(x, y, z, width, height, depth, coverMaterial)
         );
 
-        const courtyardMaterial = new THREE.MeshStandardMaterial({ color: 0x59666b, roughness: 0.88 });
+        const courtyardMaterial = this.getMaterial("concrete", 0x59666b);
         this.addMapBox(0, 0.08, 0, 28, 0.16, 28, courtyardMaterial, false);
-        const fountainMaterial = new THREE.MeshStandardMaterial({ color: 0x4c9db0, roughness: 0.3 });
+        const fountainMaterial = this.getMaterial("metal", 0x4c9db0);
         const fountain = new THREE.Mesh(
             new THREE.CylinderGeometry(4, 4, 0.3, 32),
             fountainMaterial
         );
         fountain.position.set(0, 0.25, 0);
         fountain.receiveShadow = true;
+        fountain.castShadow = true;
         this.scene.add(fountain);
         this.addMapBox(0, 1.2, 0, 1.2, 2.4, 1.2, coverMaterial);
+        
+        // Add environmental props
+        const pipeMaterial = this.getMaterial("metal", 0x222222);
+        this.addMapBox(12, 0.5, 0, 0.5, 1, 18, pipeMaterial);
+        this.addMapBox(-12, 0.5, 0, 0.5, 1, 18, pipeMaterial);
     }
 
     addIndustrialOutpostMap() {
         const ground = new THREE.Mesh(
             new THREE.PlaneGeometry(120, 120),
-            new THREE.MeshStandardMaterial({ color: 0x625b4b, roughness: 0.95 })
+            this.getMaterial("concrete", 0x625b4b)
         );
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
         this.scene.add(ground);
 
-        const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x252422, roughness: 0.92 });
+        const roadMaterial = this.getMaterial("concrete", 0x252422);
         this.addMapBox(0, 0.02, 0, 14, 0.04, 120, roadMaterial, false);
         this.addMapBox(0, 0.025, 0, 120, 0.04, 14, roadMaterial, false);
 
-        const containerMaterial = new THREE.MeshStandardMaterial({ color: 0x8b3f32, roughness: 0.8 });
-        const darkContainerMaterial = new THREE.MeshStandardMaterial({ color: 0x315866, roughness: 0.8 });
+        const containerMaterial = this.getMaterial("metal", 0x8b3f32);
+        const darkContainerMaterial = this.getMaterial("metal", 0x315866);
         [
             [-30, 2, -28, 18, 4, 4], [-30, 2, -20, 18, 4, 4],
             [30, 2, 28, 18, 4, 4], [30, 2, 20, 18, 4, 4],
@@ -117,11 +162,11 @@ export class ArenaStrikeRenderer {
                 index % 2 ? darkContainerMaterial : containerMaterial)
         );
 
-        const warehouseMaterial = new THREE.MeshStandardMaterial({ color: 0x77736a, roughness: 0.9 });
+        const warehouseMaterial = this.getMaterial("concrete", 0x77736a);
         this.addMapBox(-38, 5, 0, 14, 10, 24, warehouseMaterial);
         this.addMapBox(38, 5, 0, 14, 10, 24, warehouseMaterial);
 
-        const coverMaterial = new THREE.MeshStandardMaterial({ color: 0x786044, roughness: 0.95 });
+        const coverMaterial = this.getMaterial("wood", 0x786044);
         [
             [-10, 1, -10, 6, 2, 2], [10, 1, -10, 6, 2, 2],
             [-10, 1, 10, 6, 2, 2], [10, 1, 10, 6, 2, 2],
@@ -129,6 +174,11 @@ export class ArenaStrikeRenderer {
         ].forEach(([x, y, z, width, height, depth]) =>
             this.addMapBox(x, y, z, width, height, depth, coverMaterial)
         );
+        
+        // Add environmental props
+        const barrierMaterial = this.getMaterial("concrete", 0xaaaaaa);
+        this.addMapBox(0, 0.5, 18, 6, 1, 0.5, barrierMaterial);
+        this.addMapBox(0, 0.5, -18, 6, 1, 0.5, barrierMaterial);
     }
 
     addMapBox(x, y, z, width, height, depth, material, collidable = true) {
@@ -151,7 +201,7 @@ export class ArenaStrikeRenderer {
         ]);
         this.characterTemplate = character.status === "fulfilled" ? character.value.scene : null;
         if (this.characterTemplate) {
-            this.normalizeModel(this.characterTemplate, 1.8);
+            this.normalizeModel(this.characterTemplate, 1.8, true);
         }
         weapons.forEach((result, index) => {
             if (result.status === "fulfilled") {
@@ -162,7 +212,7 @@ export class ArenaStrikeRenderer {
         });
     }
 
-    normalizeModel(model, targetSize) {
+    normalizeModel(model, targetSize, alignToGround = false) {
         model.updateMatrixWorld(true);
         const bounds = new THREE.Box3().setFromObject(model);
         const size = bounds.getSize(new THREE.Vector3());
@@ -170,15 +220,124 @@ export class ArenaStrikeRenderer {
         if (largestDimension > 0) {
             model.scale.multiplyScalar(targetSize / largestDimension);
         }
+        if (alignToGround) {
+            model.updateMatrixWorld(true);
+            const newBounds = new THREE.Box3().setFromObject(model);
+            model.position.y -= newBounds.min.y;
+        }
     }
 
     addLighting() {
-        this.scene.add(new THREE.HemisphereLight(0xb8d5e8, 0x18212a, 1.8));
-        const sun = new THREE.DirectionalLight(0xffffff, 2.4);
-        sun.position.set(15, 25, 10);
-        sun.castShadow = true;
-        sun.shadow.mapSize.set(2048, 2048);
-        this.scene.add(sun);
+        this.scene.add(new THREE.AmbientLight(0x334455));
+        
+        const moon = new THREE.DirectionalLight(0x88aacc, 1.5);
+        moon.position.set(50, 80, 20);
+        moon.castShadow = true;
+        moon.shadow.mapSize.set(2048, 2048);
+        moon.shadow.camera.left = -60;
+        moon.shadow.camera.right = 60;
+        moon.shadow.camera.top = 60;
+        moon.shadow.camera.bottom = -60;
+        moon.shadow.camera.near = 10;
+        moon.shadow.camera.far = 200;
+        moon.shadow.bias = -0.0005;
+        this.scene.add(moon);
+        
+        this.viewmodelScene.add(new THREE.AmbientLight(0x334455));
+        const viewmodelMoon = new THREE.DirectionalLight(0x88aacc, 1.5);
+        viewmodelMoon.position.set(50, 80, 20);
+        this.viewmodelScene.add(viewmodelMoon);
+        
+        const skyGeo = new THREE.SphereGeometry(200, 32, 32);
+        const skyMat = new THREE.MeshBasicMaterial({
+            map: this.createSkyTexture(),
+            side: THREE.BackSide,
+            fog: false
+        });
+        this.scene.add(new THREE.Mesh(skyGeo, skyMat));
+    }
+
+    createSkyTexture() {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1024;
+        canvas.height = 1024;
+        const ctx = canvas.getContext("2d");
+        const gradient = ctx.createLinearGradient(0, 0, 0, 1024);
+        gradient.addColorStop(0, "#081018");
+        gradient.addColorStop(0.5, "#101520");
+        gradient.addColorStop(1, "#1a2430");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 1024, 1024);
+        ctx.fillStyle = "#ffffff";
+        for (let i = 0; i < 800; i++) {
+            ctx.globalAlpha = Math.random();
+            ctx.beginPath();
+            ctx.arc(Math.random() * 1024, Math.random() * 1024, Math.random() * 1.2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        return new THREE.CanvasTexture(canvas);
+    }
+
+    createNoiseMap(baseColorHex, variance, repeat) {
+        const canvas = document.createElement("canvas");
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext("2d");
+        const imgData = ctx.createImageData(256, 256);
+        
+        const rBase = (baseColorHex >> 16) & 255;
+        const gBase = (baseColorHex >> 8) & 255;
+        const bBase = baseColorHex & 255;
+        
+        for (let i = 0; i < imgData.data.length; i += 4) {
+            const v = (Math.random() - 0.5) * variance;
+            imgData.data[i] = Math.max(0, Math.min(255, rBase + v));
+            imgData.data[i + 1] = Math.max(0, Math.min(255, gBase + v));
+            imgData.data[i + 2] = Math.max(0, Math.min(255, bBase + v));
+            imgData.data[i + 3] = 255;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(repeat, repeat);
+        return tex;
+    }
+
+    getMaterial(type, baseColorHex) {
+        const key = `${type}_${baseColorHex}`;
+        if (!this.materials) this.materials = {};
+        if (this.materials[key]) return this.materials[key];
+        
+        let mat;
+        if (type === "concrete") {
+            const map = this.createNoiseMap(baseColorHex, 30, 8);
+            const rough = this.createNoiseMap(0xcccccc, 20, 8);
+            mat = new THREE.MeshStandardMaterial({ map: map, roughnessMap: rough, roughness: 0.9, metalness: 0.1 });
+        } else if (type === "metal") {
+            const map = this.createNoiseMap(baseColorHex, 20, 4);
+            const rough = this.createNoiseMap(0x888888, 30, 4);
+            mat = new THREE.MeshStandardMaterial({ map: map, roughnessMap: rough, roughness: 0.4, metalness: 0.8 });
+        } else if (type === "wood") {
+            const canvas = document.createElement("canvas");
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext("2d");
+            ctx.fillStyle = `#${baseColorHex.toString(16).padStart(6, '0')}`;
+            ctx.fillRect(0,0,256,256);
+            ctx.fillStyle = "#000000";
+            for(let i=0; i<40; i++) {
+                ctx.globalAlpha = Math.random() * 0.2;
+                ctx.fillRect(0, Math.random()*256, 256, Math.random()*4 + 1);
+            }
+            const map = new THREE.CanvasTexture(canvas);
+            map.wrapS = THREE.RepeatWrapping; map.wrapT = THREE.RepeatWrapping;
+            map.repeat.set(4, 4);
+            mat = new THREE.MeshStandardMaterial({ map: map, roughness: 0.8, metalness: 0.05 });
+        } else {
+            mat = new THREE.MeshStandardMaterial({ color: baseColorHex, roughness: 0.8 });
+        }
+        this.materials[key] = mat;
+        return mat;
     }
 
     addPlaceholderMap() {
@@ -203,22 +362,42 @@ export class ArenaStrikeRenderer {
 
     createPlayerModel(color, weapon = "ASSAULT_RIFLE") {
         const root = new THREE.Group();
-        const body = this.characterTemplate
-            ? this.characterTemplate.clone(true)
-            : new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.1, 4, 8),
+        let body;
+        if (this.characterTemplate) {
+            body = SkeletonUtils.clone(this.characterTemplate);
+        } else {
+            body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.1, 4, 8),
                 new THREE.MeshStandardMaterial({ color }));
+        }
+
+        let rightHand = null;
         body.traverse((object) => {
             if (object.isMesh) {
                 object.castShadow = true;
                 object.receiveShadow = true;
+                object.frustumCulled = false;
                 object.userData.hitLocation = object.name.toLowerCase().includes("head")
                     ? "HEAD"
                     : object.name.toLowerCase().includes("arm") || object.name.toLowerCase().includes("leg")
                         ? "LIMB" : "TORSO";
             }
+            const name = object.name.toLowerCase();
+            if (object.isBone && (name.includes("right") || name.includes("r_")) && (name.includes("hand") || name.includes("wrist"))) {
+                rightHand = object;
+            }
         });
         root.add(body);
-        root.add(this.createWeaponModel(weapon, false));
+
+        const weaponMesh = this.createWeaponModel(weapon, false);
+        if (rightHand) {
+            const socket = new THREE.Group();
+            socket.name = "RightHandSocket";
+            socket.add(weaponMesh);
+            rightHand.add(socket);
+        } else {
+            root.add(weaponMesh);
+        }
+        
         root.userData.walkPhase = Math.random() * Math.PI * 2;
         return root;
     }
@@ -230,28 +409,44 @@ export class ArenaStrikeRenderer {
             ? gunTemplate.clone(true)
             : new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.8),
                 new THREE.MeshStandardMaterial({ color: 0x20252a }));
-        // The assets point along +X. +90 degrees around Y points the muzzle
-        // toward the camera's -Z forward axis.
-        gun.rotation.set(0, Math.PI / 2, 0);
-        gun.position.set(firstPerson ? 0.22 : 0.35, firstPerson ? -0.38 : 1.05,
-            firstPerson ? -0.62 : -0.5);
-        gun.scale.setScalar(firstPerson ? 0.3 : 1);
+        
+        if (firstPerson) {
+            const config = WEAPON_CONFIGS[weapon] || WEAPON_CONFIGS["ASSAULT_RIFLE"];
+            gun.rotation.copy(config.rotation);
+            gun.position.copy(config.position);
+            gun.scale.copy(config.scale);
+        } else {
+            gun.rotation.set(Math.PI / 2, Math.PI, 0);
+            gun.position.set(0, 0, 0);
+            gun.scale.setScalar(1);
+        }
         return gun;
     }
 
     spawnLocalPlayer(weapon = "ASSAULT_RIFLE") {
+        this.currentWeaponType = weapon;
         this.localPlayer = this.createPlayerModel(0x4ea5d9, weapon);
         this.localPlayer.visible = false;
         this.scene.add(this.localPlayer);
         this.firstPersonWeapon = this.createWeaponModel(weapon, true);
-        this.camera.add(this.firstPersonWeapon);
-        this.muzzleFlash = new THREE.Mesh(
-            new THREE.SphereGeometry(0.09, 8, 8),
-            new THREE.MeshBasicMaterial({ color: 0xffc34d })
-        );
-        this.muzzleFlash.position.set(0, 0, -0.72);
-        this.muzzleFlash.visible = false;
-        this.camera.add(this.muzzleFlash);
+        this.viewmodelCamera.add(this.firstPersonWeapon);
+        
+        this.muzzleLight = new THREE.PointLight(0xffaa33, 0, 5);
+        this.muzzleLight.position.set(0, 0.05, -1.5);
+        this.firstPersonWeapon.add(this.muzzleLight);
+
+        const flashMaterial = new THREE.SpriteMaterial({ 
+            color: 0xffdd88, 
+            blending: THREE.AdditiveBlending,
+            transparent: true,
+            opacity: 0
+        });
+        this.muzzleSprite = new THREE.Sprite(flashMaterial);
+        this.muzzleSprite.scale.set(0.6, 0.6, 0.6);
+        this.muzzleSprite.position.set(0, 0.05, -1.5);
+        this.firstPersonWeapon.add(this.muzzleSprite);
+        
+        this.viewmodelScene.add(this.viewmodelCamera);
         this.scene.add(this.camera);
     }
 
@@ -259,18 +454,57 @@ export class ArenaStrikeRenderer {
         this.aiming = aiming;
     }
 
-    fireWeapon() {
+    fireWeapon(pitch, yaw) {
         if (!this.firstPersonWeapon) {
             return;
         }
         this.weaponRecoil = 0.08;
-        if (this.muzzleFlash) {
-            this.muzzleFlash.visible = true;
-            window.setTimeout(() => {
-                if (this.muzzleFlash) {
-                    this.muzzleFlash.visible = false;
+        
+        if (this.muzzleLight) this.muzzleLight.intensity = 2;
+        if (this.muzzleSprite) {
+            this.muzzleSprite.material.opacity = 1;
+            this.muzzleSprite.material.rotation = Math.random() * Math.PI * 2;
+        }
+        
+        window.setTimeout(() => {
+            if (this.muzzleLight) this.muzzleLight.intensity = 0;
+            if (this.muzzleSprite) this.muzzleSprite.material.opacity = 0;
+        }, 50);
+
+        if (pitch !== undefined && yaw !== undefined) {
+            const startPoint = new THREE.Vector3();
+            this.muzzleLight.getWorldPosition(startPoint);
+            
+            const direction = new THREE.Vector3(
+                -Math.sin(yaw) * Math.cos(pitch),
+                Math.sin(pitch),
+                -Math.cos(yaw) * Math.cos(pitch)
+            ).normalize();
+            
+            const raycaster = new THREE.Raycaster(this.camera.position, direction);
+            let endPoint = new THREE.Vector3().copy(this.camera.position).add(direction.clone().multiplyScalar(150));
+            
+            const intersects = raycaster.intersectObjects(this.scene.children, true);
+            const validHits = intersects.filter(hit => hit.object !== this.localPlayer && hit.object !== this.firstPersonWeapon);
+            if (validHits.length > 0) {
+                endPoint = validHits[0].point;
+            }
+
+            const material = new THREE.LineBasicMaterial({ color: 0xffd27f, transparent: true, opacity: 0.8 });
+            const geometry = new THREE.BufferGeometry().setFromPoints([startPoint, endPoint]);
+            const tracer = new THREE.Line(geometry, material);
+            this.scene.add(tracer);
+
+            const fadeInterval = window.setInterval(() => {
+                if (tracer.material.opacity <= 0) {
+                    this.scene.remove(tracer);
+                    geometry.dispose();
+                    material.dispose();
+                    window.clearInterval(fadeInterval);
+                    return;
                 }
-            }, 55);
+                tracer.material.opacity -= 0.1;
+            }, 8);
         }
     }
 
@@ -406,8 +640,8 @@ export class ArenaStrikeRenderer {
     applyStance(model, stance) {
         const scale = {
             STANDING: 1,
-            CROUCHING: 0.6,
-            PRONE: 0.3,
+            CROUCHING: 0.5,
+            PRONE: 0.2,
             JUMPING: 1.08
         }[stance] || 1;
         model.scale.set(1, scale, stance === "PRONE" ? 1.25 : 1);
@@ -415,12 +649,30 @@ export class ArenaStrikeRenderer {
     }
 
     render() {
-        const targetFov = this.aiming ? 45 : 70;
+        const targetFov = this.aiming ? 50 : 75;
         this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 0.2);
         this.camera.updateProjectionMatrix();
+        
+        this.viewmodelCamera.fov = this.camera.fov;
+        this.viewmodelCamera.updateProjectionMatrix();
+        this.viewmodelCamera.quaternion.copy(this.camera.quaternion);
+
         if (this.firstPersonWeapon) {
-            const targetX = this.aiming ? 0 : 0.22;
-            const targetY = this.aiming ? -0.25 : -0.38;
+            const horizontalVelocity = Math.hypot(
+                this.camera.position.x - this.lastCameraPos.x,
+                this.camera.position.z - this.lastCameraPos.z
+            );
+            this.lastCameraPos.copy(this.camera.position);
+            
+            this.bobPhase += horizontalVelocity * 12;
+            const bobX = Math.sin(this.bobPhase) * 0.015;
+            const bobY = Math.abs(Math.cos(this.bobPhase)) * 0.015;
+
+            const config = WEAPON_CONFIGS[this.currentWeaponType] || WEAPON_CONFIGS["ASSAULT_RIFLE"];
+            const targetX = this.aiming ? config.adsPosition.x : config.position.x + bobX;
+            const targetY = this.aiming ? config.adsPosition.y : config.position.y + bobY;
+            const targetZ = this.aiming ? config.adsPosition.z : config.position.z;
+            
             this.firstPersonWeapon.position.x = THREE.MathUtils.lerp(
                 this.firstPersonWeapon.position.x, targetX, 0.2
             );
@@ -428,13 +680,18 @@ export class ArenaStrikeRenderer {
                 this.firstPersonWeapon.position.y, targetY, 0.2
             );
             this.firstPersonWeapon.position.z = THREE.MathUtils.lerp(
-                this.firstPersonWeapon.position.z, -0.62 + this.weaponRecoil, 0.3
+                this.firstPersonWeapon.position.z, targetZ + this.weaponRecoil, 0.3
             );
+            
             this.weaponRecoil *= 0.72;
             this.firstPersonWeapon.rotation.x = THREE.MathUtils.lerp(
                 this.firstPersonWeapon.rotation.x, this.aiming ? -0.02 : 0, 0.2);
         }
+        
+        this.renderer.clear();
         this.renderer.render(this.scene, this.camera);
+        this.renderer.clearDepth();
+        this.renderer.render(this.viewmodelScene, this.viewmodelCamera);
     }
 
     resize() {
@@ -443,6 +700,10 @@ export class ArenaStrikeRenderer {
         if (width && height) {
             this.camera.aspect = width / height;
             this.camera.updateProjectionMatrix();
+            if (this.viewmodelCamera) {
+                this.viewmodelCamera.aspect = width / height;
+                this.viewmodelCamera.updateProjectionMatrix();
+            }
             this.renderer.setSize(width, height, false);
         }
     }

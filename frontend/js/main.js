@@ -9,7 +9,9 @@ const roomStatusElement = document.querySelector("#room-status");
 const matchTimerElement = document.querySelector("#match-timer");
 const killFeedElement = document.querySelector("#kill-feed");
 const matchOverElement = document.querySelector("#match-over");
-const weaponAmmoElement = document.querySelector("#weapon-ammo");
+const weaponNameElement = document.querySelector("#weapon-name");
+const currentAmmoElement = document.querySelector("#current-ammo");
+const reserveAmmoElement = document.querySelector("#reserve-ammo");
 const healthLabelElement = document.querySelector("#health-label");
 const healthBarElement = document.querySelector("#health-bar");
 const renderer = new ArenaStrikeRenderer(canvas);
@@ -42,41 +44,74 @@ const MAGAZINE_SIZES = {
     SHOTGUN: 2,
     BOLT_ACTION_RIFLE: 5
 };
-weaponAmmoElement.textContent = `${weapon.replaceAll("_", " ")} ammo: ${MAGAZINE_SIZES[weapon] || "--"}`;
+let currentAmmo = MAGAZINE_SIZES[weapon] || 30;
+let isReloading = false;
+
+function updateAmmoDisplay() {
+    weaponNameElement.textContent = weapon.replaceAll("_", " ");
+    currentAmmoElement.textContent = String(currentAmmo);
+    reserveAmmoElement.textContent = String((MAGAZINE_SIZES[weapon] || 30) * 3);
+}
+updateAmmoDisplay();
+
+function updateTimer(remainingSeconds) {
+    if (remainingSeconds <= 0) {
+        matchTimerElement.textContent = `Time: 00:00`;
+        return;
+    }
+    const minutes = String(Math.floor(remainingSeconds / 60)).padStart(2, "0");
+    const seconds = String(remainingSeconds % 60).padStart(2, "0");
+    matchTimerElement.textContent = `Time: ${minutes}:${seconds}`;
+}
+
+function stopClientLoops() {
+    gameRunning = false;
+    keys.clear();
+    movement.forward = 0;
+    movement.strafe = 0;
+    verticalVelocity = 0;
+    onGround = true;
+    if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+    }
+    renderer.resetEntities();
+    sounds.stop();
+}
+
+function handleBeforeUnload() {
+    if (teardownComplete) {
+        return;
+    }
+    teardownComplete = true;
+    detachInputListeners();
+    stopClientLoops();
+    socket.disconnect(roomCode, playerId);
+}
 
 function onKeyDown(event) {
     if (!inputEnabled) return;
-    if (["KeyW", "KeyA", "KeyS", "KeyD", "Space"].includes(event.code)) {
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "Space", "KeyR"].includes(event.code)) {
         event.preventDefault();
-    }
-
-    function stopClientLoops() {
-        gameRunning = false;
-        keys.clear();
-        movement.forward = 0;
-        movement.strafe = 0;
-        verticalVelocity = 0;
-        onGround = true;
-        if (animationFrameId !== null) {
-            cancelAnimationFrame(animationFrameId);
-            animationFrameId = null;
-        }
-        renderer.resetEntities();
-        sounds.stop();
-    }
-
-    function handleBeforeUnload() {
-        if (teardownComplete) {
-            return;
-        }
-        teardownComplete = true;
-        detachInputListeners();
-        stopClientLoops();
-        socket.disconnect(roomCode, playerId);
     }
     keys.add(event.code);
     if (event.code === "KeyZ") {
         stance = stance === "PRONE" ? "STANDING" : "PRONE";
+    }
+    if (event.code === "KeyH") {
+        document.querySelector("#controls-hint").classList.toggle("hidden");
+    }
+    if (event.code === "KeyR" && currentAmmo < MAGAZINE_SIZES[weapon] && !isReloading) {
+        isReloading = true;
+        sounds.reload();
+        if (socket.client?.connected) {
+            socket.reload(roomCode, { weaponId: weapon });
+        }
+        window.setTimeout(() => {
+            currentAmmo = MAGAZINE_SIZES[weapon];
+            isReloading = false;
+            updateAmmoDisplay();
+        }, 2000);
     }
 }
 function onKeyUp(event) {
@@ -100,18 +135,34 @@ function onMouseDown(event) {
         event.preventDefault();
         sounds.unlock();
         renderer.setAiming(true);
+        document.querySelector("#crosshair").hidden = true;
         return;
     }
     if (event.button !== 0 || document.pointerLockElement !== canvas) {
         return;
     }
-    renderer.fireWeapon();
+    if (currentAmmo <= 0) {
+        sounds.empty();
+        return;
+    }
+    if (isReloading) return;
+
+    currentAmmo--;
+    updateAmmoDisplay();
+
+    const spreadMultiplier = renderer.aiming ? 0.4 : 1.0;
+    const spreadPitch = (Math.random() - 0.5) * 0.04 * spreadMultiplier;
+    const spreadYaw = (Math.random() - 0.5) * 0.04 * spreadMultiplier;
+    const actualPitch = pitch + spreadPitch;
+    const actualYaw = yaw + spreadYaw;
+
+    renderer.fireWeapon(actualPitch, actualYaw);
     sounds.fire();
     if (socket.client?.connected) {
         socket.shoot(roomCode, {
             action: "FIRE",
             timestamp: Date.now(),
-            angle: renderer.camera.rotation.x,
+            angle: actualPitch,
             weaponId: weapon
         });
     }
@@ -121,6 +172,7 @@ function onMouseUp(event) {
     if (event.button === 2) {
         event.preventDefault();
         renderer.setAiming(false);
+        document.querySelector("#crosshair").hidden = false;
     }
 }
 function onContextMenu(event) { event.preventDefault(); }
@@ -214,14 +266,18 @@ function updateMovement(deltaSeconds) {
 }
 
 function publishLocalState() {
+    const feetY = renderer.camera.position.y - (stance === "PRONE" ? 0.65 : stance === "CROUCHING" ? 1.15 : 1.7);
     socket.publishInput(roomCode, {
         playerId,
-        forward: movement.forward,
-        strafe: movement.strafe,
-        jump: keys.has("Space"),
+        x: renderer.camera.position.x,
+        y: feetY,
+        z: renderer.camera.position.z,
+        velocityX: 0,
+        velocityY: verticalVelocity,
+        state: stance,
+        isJumping: keys.has("Space"),
         rotation: { x: pitch, y: yaw, z: 0 },
-        currentWeapon: weapon,
-        stance
+        currentWeapon: weapon
     });
 }
 
@@ -247,17 +303,25 @@ async function startGame() {
             rotation: { x: 0, y: 0, z: 0 },
             health: 100,
             currentWeapon: weapon,
-            stance
+            state: stance
         },
         (state) => {
+            if (state.type === "TIMER_SYNC") {
+                updateTimer(state.remainingSeconds);
+                return;
+            }
+            if (state.serverTick < lastProcessedServerTick) return;
+            lastProcessedServerTick = state.serverTick;
             renderer.updateRemotePlayers(state.players, playerId);
             const local = state.players.find((player) => player.playerId === playerId);
             if (local) {
                 updateHealth(local.health);
             }
-            matchTimerElement.textContent = state.roomState === "ACTIVE"
-                ? `Time: ${Math.floor(state.remainingSeconds / 60)}:${String(state.remainingSeconds % 60).padStart(2, "0")}`
-                : state.roomState === "FINISHED" ? "Match over" : "Waiting for players";
+            if (state.roomState !== "ACTIVE") {
+                matchTimerElement.textContent = state.roomState === "FINISHED" ? "Match over" : "Waiting for players";
+            } else if (state.remainingSeconds) {
+                updateTimer(state.remainingSeconds);
+            }
         },
         (message) => { statusElement.textContent = message; },
         (event) => {
@@ -282,12 +346,17 @@ async function startGame() {
             if (event.hit) {
                 renderer.showHitMarker(event.hit);
             }
+            if (event.event === "SHOT_VERIFIED" && String(event.attackerId) !== String(playerId)) {
+                const remote = renderer.remotePlayers.get(Number(event.attackerId));
+                if (remote && remote.mesh) {
+                    sounds.fire(remote.mesh.position);
+                }
+            }
         },
         (event) => {
-            matchTimerElement.textContent = `Time: ${Math.floor(event.remainingSeconds / 60)}:${String(event.remainingSeconds % 60).padStart(2, "0")}`;
-        },
-        (event) => {
-            weaponAmmoElement.textContent = `${event.weaponId.replaceAll("_", " ")} ammo: ${event.currentAmmo}`;
+            currentAmmo = event.currentAmmo;
+            isReloading = event.reloading;
+            updateAmmoDisplay();
         },
         handleUnexpectedDisconnect
     );
@@ -301,7 +370,7 @@ async function startGame() {
 
 function updateHealth(health) {
     const value = Math.max(0, Math.min(100, Number(health) || 0));
-    healthLabelElement.textContent = `Health: ${value}`;
+    // Remove "Health: " text and keep it sleek
     healthBarElement.setAttribute("aria-valuenow", String(value));
     healthBarElement.firstElementChild.style.width = `${value}%`;
     healthBarElement.firstElementChild.style.backgroundColor =
@@ -314,6 +383,7 @@ function renderFrame(now) {
     lastTime = now;
     updateMovement(deltaSeconds);
     renderer.interpolateRemotePlayers(deltaSeconds);
+    sounds.updateListener(renderer.camera.position, { x: pitch, y: yaw, z: 0 });
     if (now - lastNetworkUpdate >= 50) {
         publishLocalState();
         lastNetworkUpdate = now;
@@ -362,15 +432,16 @@ async function submitLobby(event) {
     lobbyError.textContent = "";
     try {
         const response = requestedRoom
-            ? await fetch(`${API_BASE_URL}/api/lobbies/${requestedRoom}/join`, {
+            ? await fetch(`${API_BASE_URL}/api/lobby/${requestedRoom}/join`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ displayName })
             })
-            : await fetch(`${API_BASE_URL}/api/lobbies`, {
+            : await fetch(`${API_BASE_URL}/api/lobby/create`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    roomName: String(form.get("roomName")) || "Arena Match",
                     displayName,
                     map: String(form.get("map")),
                     playerLimit: Number(form.get("playerLimit"))

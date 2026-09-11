@@ -55,6 +55,15 @@ export class ArenaStrikeSocket {
         }
     }
 
+    reload(roomCode, command) {
+        if (this.client?.connected) {
+            this.client.publish({
+                destination: `/app/rooms/${roomCode}/reload`,
+                body: JSON.stringify(command)
+            });
+        }
+    }
+
     disconnect(roomCode, playerId) {
         const disconnectingClient = this.client;
         if (disconnectingClient?.connected) {

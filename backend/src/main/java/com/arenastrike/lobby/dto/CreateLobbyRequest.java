@@ -4,6 +4,7 @@ import com.arenastrike.lobby.model.GameMap;
 import jakarta.validation.constraints.*;
 
 public record CreateLobbyRequest(
+        @NotBlank @Size(max = 64) String roomName,
         @NotBlank @Size(max = 32) String displayName,
         @NotNull GameMap map,
         @Min(2) @Max(10) int playerLimit

@@ -6,6 +6,7 @@ import java.util.List;
 
 public record LobbyResponse(
         String roomCode,
+        String roomName,
         GameMap map,
         int playerLimit,
         int currentPlayers,
@@ -13,17 +14,18 @@ public record LobbyResponse(
         Instant createdAt,
         List<PlayerResponse> players
 ) {
-    public record PlayerResponse(Long userId, String displayName, Instant joinedAt) {}
+    public record PlayerResponse(Long userId, String displayName, Instant joinedAt, boolean isReady) {}
 
     public static LobbyResponse from(Lobby lobby) {
         List<PlayerResponse> players = lobby.getParticipants().stream()
                 .map(player -> new PlayerResponse(
                         player.getUser().getId(),
                         player.getUser().getDisplayName(),
-                        player.getJoinedAt()))
+                        player.getJoinedAt(),
+                        player.isReady()))
                 .toList();
         return new LobbyResponse(
-                lobby.getRoomCode(), lobby.getMap(), lobby.getPlayerLimit(),
+                lobby.getRoomCode(), lobby.getRoomName(), lobby.getMap(), lobby.getPlayerLimit(),
                 players.size(), lobby.getStatus(), lobby.getCreatedAt(), players);
     }
 }

@@ -6,7 +6,7 @@ public record UpdatePlayerStateCommand(
         Rotation rotation,
         int health,
         String currentWeapon,
-        PlayerStance stance
+        MovementState state
 ) {
     public UpdatePlayerStateCommand {
         if (playerId == null || playerId <= 0) {
@@ -21,8 +21,8 @@ public record UpdatePlayerStateCommand(
         if (currentWeapon == null || currentWeapon.isBlank() || currentWeapon.length() > 32) {
             throw new IllegalArgumentException("currentWeapon must contain 1-32 characters");
         }
-        if (stance == null) {
-            throw new IllegalArgumentException("stance is required");
+        if (state == null) {
+            throw new IllegalArgumentException("state is required");
         }
     }
 }

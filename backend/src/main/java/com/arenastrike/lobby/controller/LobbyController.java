@@ -9,7 +9,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/lobbies")
+@RequestMapping("/api")
 @Validated
 public class LobbyController {
     private final LobbyService lobbyService;
@@ -18,19 +18,19 @@ public class LobbyController {
         this.lobbyService = lobbyService;
     }
 
-    @PostMapping
+    @PostMapping("/lobby/create")
     @ResponseStatus(HttpStatus.CREATED)
     public LobbyResponse createLobby(@Valid @RequestBody CreateLobbyRequest request) {
         return lobbyService.createLobby(request);
     }
 
-    @GetMapping("/{roomCode}")
+    @GetMapping("/lobby/{roomCode}")
     public LobbyResponse getLobby(
             @PathVariable @Pattern(regexp = "[A-Za-z0-9]{6}") String roomCode) {
         return lobbyService.getLobby(roomCode);
     }
 
-    @PostMapping("/{roomCode}/join")
+    @PostMapping("/lobby/{roomCode}/join")
     public LobbyResponse joinLobby(
             @PathVariable @Pattern(regexp = "[A-Za-z0-9]{6}") String roomCode,
             @Valid @RequestBody JoinLobbyRequest request) {

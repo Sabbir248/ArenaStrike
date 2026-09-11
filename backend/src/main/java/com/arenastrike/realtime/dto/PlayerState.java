@@ -7,7 +7,7 @@ public record PlayerState(
         Rotation rotation,
         int health,
         String currentWeapon,
-        PlayerStance stance
+        MovementState state
 ) {
     public static final double BASE_HEIGHT = 1.8;
 
@@ -27,8 +27,8 @@ public record PlayerState(
         if (currentWeapon == null || currentWeapon.isBlank() || currentWeapon.length() > 32) {
             throw new IllegalArgumentException("currentWeapon must contain 1-32 characters");
         }
-        if (stance == null) {
-            throw new IllegalArgumentException("stance is required");
+        if (state == null) {
+            throw new IllegalArgumentException("state is required");
         }
     }
 
@@ -37,10 +37,10 @@ public record PlayerState(
      * the simulated Z profile used by raycast collision.
      */
     public double simulatedHeight() {
-        return BASE_HEIGHT * stance.heightScale();
+        return BASE_HEIGHT * state.heightScale();
     }
 
     public double currentJumpArcOffset() {
-        return stance == PlayerStance.JUMPING ? Math.max(0, position.y()) : 0;
+        return state == MovementState.JUMPING ? Math.max(0, position.y()) : 0;
     }
 }

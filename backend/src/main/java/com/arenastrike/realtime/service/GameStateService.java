@@ -8,7 +8,8 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import com.arenastrike.combat.WeaponType;
+import com.arenastrike.combat.Weapon;
+import com.arenastrike.combat.WeaponFactory;
 import com.arenastrike.combat.HitLocation;
 import com.arenastrike.combat.PlayerWeaponState;
 import com.arenastrike.combat.CombatRaycast;
@@ -17,7 +18,8 @@ import com.arenastrike.combat.RaycastHit;
 import com.arenastrike.lobby.repository.LobbyRepository;
 import com.arenastrike.lobby.model.GameMap;
 import com.arenastrike.player.service.StatsService;
-import com.arenastrike.realtime.GameRoomEngine;
+import com.arenastrike.realtime.GameRoom;
+import com.arenastrike.realtime.GameRoomManager;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import jakarta.annotation.PreDestroy;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,20 +38,21 @@ public class GameStateService {
     private final LobbyRepository lobbyRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final StatsService statsService;
-    private final ConcurrentHashMap<String, GameRoomEngine> engines = new ConcurrentHashMap<>();
+    private final GameRoomManager roomManager;
 
     public GameStateService(LobbyRepository lobbyRepository, SimpMessagingTemplate messagingTemplate,
-                            StatsService statsService) {
+                            StatsService statsService, GameRoomManager roomManager) {
         this.lobbyRepository = lobbyRepository;
         this.messagingTemplate = messagingTemplate;
         this.statsService = statsService;
+        this.roomManager = roomManager;
     }
 
     public void joinRoom(String roomCode, PlayerState player, String sessionId) {
         String normalized = normalizeRoomCode(roomCode);
         GameRoomState gameRoom = room(normalized, lobbyMap(normalized), lobbyLimit(normalized));
-        engines.computeIfAbsent(normalized,
-                ignored -> new GameRoomEngine(normalized, gameRoom, messagingTemplate,
+        roomManager.computeIfAbsent(normalized,
+                ignored -> new GameRoom(normalized, gameRoom, messagingTemplate,
                         summary -> finishRoom(normalized, summary))).start();
         synchronized (gameRoom) {
             gameRoom.addPlayer(player);
@@ -73,9 +76,9 @@ public class GameStateService {
         room.updatePlayer(update);
     }
 
-    public void enqueueInput(String roomCode, PlayerInputCommand input) {
+    public void enqueueInput(String roomCode, PlayerMovementPacket input) {
         String normalized = normalizeRoomCode(roomCode);
-        GameRoomEngine engine = engines.get(normalized);
+        GameRoom engine = roomManager.get(normalized);
         GameRoomState room = activeRooms.get(normalized);
         if (engine == null || room == null) {
             throw new GameStateConflictException("Room is not active");
@@ -103,19 +106,19 @@ public class GameStateService {
             return Optional.empty();
         }
         sessions.entrySet().removeIf(entry -> entry.getValue().matches(normalizedRoomCode, playerId));
-        GameRoomEngine engine = engines.get(normalizedRoomCode);
+        GameRoom engine = roomManager.get(normalizedRoomCode);
         if (engine != null) {
             engine.removePlayer(playerId);
         }
         if (room.isEmpty()) {
-            GameRoomEngine removedEngine = engines.remove(normalizedRoomCode);
+            GameRoom removedEngine = roomManager.remove(normalizedRoomCode);
             if (removedEngine != null) {
                 removedEngine.close();
             }
             activeRooms.remove(normalizedRoomCode, room);
             lastClientShotTimestamps.remove(normalizedRoomCode);
         } else if (room.snapshot().roomState() == RoomState.ACTIVE) {
-            GameRoomEngine activeEngine = engines.get(normalizedRoomCode);
+            GameRoom activeEngine = roomManager.get(normalizedRoomCode);
             if (activeEngine != null) {
                 activeEngine.finishForfeit();
             }
@@ -157,7 +160,7 @@ public class GameStateService {
             if (player == null || !player.currentWeapon().equals(command.weaponId())) {
                 throw new GameStateConflictException("Weapon is not equipped by the player");
             }
-            WeaponType weapon = weapon(command.weaponId());
+            Weapon weapon = weapon(command.weaponId());
             return room.beginReload(session.playerId(), weapon, System.currentTimeMillis());
         }
     }
@@ -171,7 +174,7 @@ public class GameStateService {
         if (shooter.health() <= 0 || room.snapshot().roomState() != RoomState.ACTIVE) {
             throw new GameStateConflictException("Player cannot shoot in the current match state");
         }
-        WeaponType weapon = weapon(command.weaponId());
+        Weapon weapon = weapon(command.weaponId());
         if (!weapon.name().equals(command.weaponId())
                 || !weapon.name().equals(shooter.currentWeapon())) {
             throw new GameStateConflictException("Weapon is not equipped by the shooter");
@@ -179,7 +182,8 @@ public class GameStateService {
         long now = System.currentTimeMillis();
         PlayerWeaponState weaponState = room.weaponState(shooterId, weapon);
         if (weaponState.isReloading() || weaponState.reloadInProgress(now)) {
-            throw new GameStateConflictException("Player is reloading");
+            return new VerifiedShot("SHOT_VERIFIED", String.valueOf(shooterId),
+                    weapon.name(), weaponState.currentAmmo(), true, null);
         }
         if (now - weaponState.lastShotTimestamp() < weapon.cooldownMillis()) {
             throw new GameStateConflictException("Weapon is on cooldown");
@@ -195,7 +199,8 @@ public class GameStateService {
         int ammo = weaponState.currentAmmo();
         if (ammo <= 0) {
             weaponState.beginReload();
-            throw new GameStateConflictException("Magazine is empty; reload before firing");
+            return new VerifiedShot("SHOT_VERIFIED", String.valueOf(shooterId),
+                    weapon.name(), 0, weaponState.isReloading(), null);
         }
         clientTimestamps.put(shooterId, command.timestamp());
         weaponState.markShot(now);
@@ -212,7 +217,7 @@ public class GameStateService {
                 -Math.cos(yaw) * Math.cos(pitch));
         List<PlayerHitbox> hitboxes = room.snapshot().players().stream()
                 .map(PlayerHitbox::from).toList();
-        if (weapon == WeaponType.SHOTGUN) {
+        if (weapon.id().equals("SHOTGUN")) {
             return shotgunShot(shooter, shooterId, weapon, ammoAfterShot, weaponState.isReloading(),
                     origin, yaw, pitch, hitboxes, room);
         }
@@ -232,6 +237,7 @@ public class GameStateService {
         int damage = weapon.damageFor(hit.hitLocation());
         boolean instantKill = weapon.isInstantKill(hit.hitLocation());
         int currentHp = room.applyDamageAndGetHealth(hit.targetId(), damage, instantKill);
+        room.recordDamageDealt(shooterId, damage);
         if (currentHp == 0) {
             room.recordKill(shooterId, hit.hitLocation());
         }
@@ -249,7 +255,7 @@ public class GameStateService {
         return dx * dx + dy * dy + dz * dz;
     }
 
-    private VerifiedShot shotgunShot(PlayerState shooter, Long shooterId, WeaponType weapon,
+    private VerifiedShot shotgunShot(PlayerState shooter, Long shooterId, Weapon weapon,
                                      int ammoAfterShot, boolean reloading, Vector3 origin, double yaw, double pitch,
                                      List<PlayerHitbox> hitboxes, GameRoomState room) {
         Map<Long, PelletAggregate> hits = new HashMap<>();
@@ -290,6 +296,7 @@ public class GameStateService {
         int damage = Math.min(90, (int) Math.round(aggregate.totalDamage()));
         PlayerState target = room.player(targetId);
         int currentHp = room.applyDamageAndGetHealth(targetId, damage, false);
+        room.recordDamageDealt(shooterId, damage);
         if (currentHp == 0) {
             room.recordKill(shooterId, aggregate.zone());
         }
@@ -313,15 +320,15 @@ public class GameStateService {
     private record PelletAggregate(HitLocation zone, double distance, int pellets, double totalDamage) {
         static PelletAggregate first(HitLocation zone, double distance, double falloff) {
             return new PelletAggregate(zone, distance, 1,
-                    90.0 * falloff / WeaponType.SHOTGUN.pelletCount());
+                    90.0 * falloff / WeaponFactory.get("SHOTGUN").pelletCount());
         }
 
         PelletAggregate add(HitLocation nextZone, double nextDistance, double nextFalloff) {
-            HitLocation strongest = WeaponType.SHOTGUN.damageFor(nextZone)
-                    > WeaponType.SHOTGUN.damageFor(zone) ? nextZone : zone;
+            HitLocation strongest = WeaponFactory.get("SHOTGUN").damageFor(nextZone)
+                    > WeaponFactory.get("SHOTGUN").damageFor(zone) ? nextZone : zone;
             return new PelletAggregate(strongest, Math.min(distance, nextDistance),
                     pellets + 1, totalDamage
-                            + 90.0 * nextFalloff / WeaponType.SHOTGUN.pelletCount());
+                            + 90.0 * nextFalloff / WeaponFactory.get("SHOTGUN").pelletCount());
         }
 
         double damageScore() {
@@ -329,9 +336,9 @@ public class GameStateService {
         }
     }
 
-    private WeaponType weapon(String weaponId) {
+    private Weapon weapon(String weaponId) {
         try {
-            return WeaponType.valueOf(weaponId);
+            return WeaponFactory.get(weaponId);
         } catch (IllegalArgumentException exception) {
             throw new GameStateConflictException("Unknown weapon");
         }
@@ -343,8 +350,8 @@ public class GameStateService {
 
     @PreDestroy
     public void shutdownEngines() {
-        engines.values().forEach(GameRoomEngine::close);
-        engines.clear();
+        roomManager.getAllRooms().forEach(GameRoom::close);
+        roomManager.clear();
     }
 
     private GameRoomState room(String roomCode, GameMap map, int maxPlayers) {
@@ -367,7 +374,7 @@ public class GameStateService {
     private void finishRoom(String roomCode, MatchSummary summary) {
         statsService.recordCompletedMatchAsync(summary, 300);
         lobbyRepository.findByRoomCode(roomCode).ifPresent(lobby -> lobby.resetForNextMatch());
-        GameRoomEngine engine = engines.remove(roomCode);
+        GameRoom engine = roomManager.remove(roomCode);
         if (engine != null) {
             activeRooms.remove(roomCode);
         }

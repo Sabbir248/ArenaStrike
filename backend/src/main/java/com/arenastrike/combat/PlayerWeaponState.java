@@ -1,20 +1,20 @@
 package com.arenastrike.combat;
 
 public final class PlayerWeaponState {
-    private final WeaponType weapon;
+    private final Weapon weapon;
     private final long reloadDurationMs;
     private long lastShotTimestamp;
     private long reloadStartTime;
     private int currentAmmo;
     private boolean reloading;
 
-    public PlayerWeaponState(WeaponType weapon) {
+    public PlayerWeaponState(Weapon weapon) {
         this.weapon = weapon;
         this.reloadDurationMs = weapon.reloadDurationMs();
         this.currentAmmo = weapon.magazineSize();
     }
 
-    public WeaponType weapon() {
+    public Weapon weapon() {
         return weapon;
     }
 
