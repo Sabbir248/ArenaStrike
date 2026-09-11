@@ -6,7 +6,9 @@ public record RoomGameState(
         String roomCode,
         long serverTick,
         List<PlayerState> players,
-        MatchStatus matchStatus,
+        RoomState roomState,
+        String map,
+        int maxPlayers,
         long remainingSeconds
 ) {
     public RoomGameState {

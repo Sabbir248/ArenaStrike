@@ -6,7 +6,7 @@ export class ArenaStrikeSocket {
         this.client = null;
     }
 
-    connect(roomCode, player, onState, onStatus, onKill, onMatchOver, onExit) {
+    connect(roomCode, player, onState, onStatus, onKill, onMatchOver, onExit, onHit, onTimer, onAmmo, onDisconnected) {
         if (!window.StompJs || !window.SockJS) {
             throw new Error("STOMP and SockJS scripts are not loaded");
         }
@@ -15,16 +15,21 @@ export class ArenaStrikeSocket {
             reconnectDelay: 3000,
             onConnect: () => {
                 onStatus("Connected");
-                this.client.subscribe(`/topic/rooms/${roomCode}/state`, message => onState(JSON.parse(message.body)));
+                this.client.subscribe(`/topic/room/${roomCode}`, message => onState(JSON.parse(message.body)));
                 this.client.subscribe(`/topic/rooms/${roomCode}/kills`, message => onKill(JSON.parse(message.body)));
-                this.client.subscribe(`/topic/rooms/${roomCode}/match-over`, message => onMatchOver(JSON.parse(message.body)));
-                this.client.subscribe(`/topic/rooms/${roomCode}/exits`, message => onExit(JSON.parse(message.body)));
+                this.client.subscribe(`/topic/room/${roomCode}/events`, message => onHit(JSON.parse(message.body)));
+                this.client.subscribe(`/topic/room/${roomCode}/ammo`, message => onAmmo(JSON.parse(message.body)));
+                this.client.subscribe(`/topic/room/${roomCode}/game-over`, message => onMatchOver(JSON.parse(message.body)));
+                this.client.subscribe(`/topic/room/${roomCode}/timer`, message => onTimer(JSON.parse(message.body)));
                 this.client.publish({
                     destination: `/app/rooms/${roomCode}/join`,
                     body: JSON.stringify({ player })
                 });
             },
-            onDisconnect: () => onStatus("Disconnected"),
+            onDisconnect: () => {
+                onStatus("Disconnected");
+                onDisconnected?.();
+            },
             onStompError: frame => onStatus(`Broker error: ${frame.headers.message || "unknown"}`)
         });
         this.client.onWebSocketError = () => onStatus("WebSocket connection failed");
@@ -32,31 +37,33 @@ export class ArenaStrikeSocket {
         this.client.activate();
     }
 
-    publishState(roomCode, state) {
+    publishInput(roomCode, input) {
         if (this.client?.connected) {
             this.client.publish({
-                destination: `/app/rooms/${roomCode}/state`,
-                body: JSON.stringify(state)
+                destination: `/app/rooms/${roomCode}/input`,
+                body: JSON.stringify(input)
             });
         }
     }
 
-    shoot(roomCode, shooterId, targetId, hitLocation, weapon = "ASSAULT_RIFLE") {
+    shoot(roomCode, shot) {
         if (this.client?.connected) {
             this.client.publish({
                 destination: `/app/rooms/${roomCode}/shoot`,
-                body: JSON.stringify({ shooterId, targetId, hitLocation, weapon })
+                body: JSON.stringify(shot)
             });
         }
     }
 
     disconnect(roomCode, playerId) {
-        if (this.client?.connected) {
-            this.client.publish({
+        const disconnectingClient = this.client;
+        if (disconnectingClient?.connected) {
+            disconnectingClient.publish({
                 destination: `/app/rooms/${roomCode}/leave`,
                 body: JSON.stringify(playerId)
             });
         }
-        return this.client?.deactivate();
+        this.client = null;
+        return disconnectingClient?.deactivate();
     }
 }

@@ -9,6 +9,8 @@ public record PlayerState(
         String currentWeapon,
         PlayerStance stance
 ) {
+    public static final double BASE_HEIGHT = 1.8;
+
     public PlayerState {
         if (playerId == null || playerId <= 0) {
             throw new IllegalArgumentException("playerId must be positive");
@@ -28,5 +30,17 @@ public record PlayerState(
         if (stance == null) {
             throw new IllegalArgumentException("stance is required");
         }
+    }
+
+    /**
+     * Returns the server-authoritative vertical hitbox height, represented as
+     * the simulated Z profile used by raycast collision.
+     */
+    public double simulatedHeight() {
+        return BASE_HEIGHT * stance.heightScale();
+    }
+
+    public double currentJumpArcOffset() {
+        return stance == PlayerStance.JUMPING ? Math.max(0, position.y()) : 0;
     }
 }

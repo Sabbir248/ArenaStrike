@@ -1,19 +1,23 @@
 package com.arenastrike.realtime.dto;
 
-import com.arenastrike.combat.*;
-
 public record ShootCommand(
-        Long shooterId,
-        Long targetId,
-        HitLocation hitLocation,
-        WeaponType weapon
+        String action,
+        long timestamp,
+        float angle,
+        String weaponId
 ) {
     public ShootCommand {
-        if (shooterId == null || targetId == null || shooterId.equals(targetId)) {
-            throw new IllegalArgumentException("Shooter and target must be different players");
+        if (!"FIRE".equals(action)) {
+            throw new IllegalArgumentException("Only FIRE actions are supported");
         }
-        if (hitLocation == null || weapon == null) {
-            throw new IllegalArgumentException("Weapon and hit location are required");
+        if (timestamp <= 0) {
+            throw new IllegalArgumentException("timestamp must be positive");
+        }
+        if (!Float.isFinite(angle)) {
+            throw new IllegalArgumentException("angle must be finite");
+        }
+        if (weaponId == null || weaponId.isBlank() || weaponId.length() > 32) {
+            throw new IllegalArgumentException("weaponId must contain 1-32 characters");
         }
     }
 }

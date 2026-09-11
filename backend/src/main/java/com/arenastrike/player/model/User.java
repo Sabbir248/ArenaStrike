@@ -10,8 +10,11 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 32)
-    private String displayName;
+    @Column(nullable = false, unique = true, length = 32)
+    private String username;
+
+    @Column(nullable = false, length = 255)
+    private String password;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
@@ -19,8 +22,13 @@ public class User {
     protected User() {
     }
 
-    public User(String displayName) {
-        this.displayName = displayName;
+    public User(String username) {
+        this(username, "");
+    }
+
+    public User(String username, String password) {
+        this.username = username;
+        this.password = password;
         this.createdAt = Instant.now();
     }
 
@@ -32,6 +40,8 @@ public class User {
     }
 
     public Long getId() { return id; }
-    public String getDisplayName() { return displayName; }
+    public String getUsername() { return username; }
+    public String getDisplayName() { return username; }
+    public String getPassword() { return password; }
     public Instant getCreatedAt() { return createdAt; }
 }

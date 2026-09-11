@@ -65,4 +65,9 @@ public class Lobby {
     public LobbyStatus getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
     public List<LobbyParticipant> getParticipants() { return participants; }
+
+    public void resetForNextMatch() {
+        participants.clear();
+        status = LobbyStatus.WAITING;
+    }
 }

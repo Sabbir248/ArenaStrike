@@ -1,6 +1,5 @@
 package com.arenastrike.match.model;
 
-import com.arenastrike.player.model.User;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -11,37 +10,36 @@ public class MatchHistory {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    @Column(nullable = false, length = 6)
+    private String roomId;
 
     @Column(nullable = false, length = 32)
     private String mapName;
 
     @Column(nullable = false)
-    private int kills;
-
-    @Column(nullable = false)
-    private int deaths;
+    private Long winnerId;
 
     @Column(nullable = false, updatable = false)
-    private Instant playedAt;
+    private int durationSeconds;
+
+    @Column(nullable = false, updatable = false)
+    private Instant endedAt;
 
     protected MatchHistory() {
     }
 
-    public MatchHistory(User user, String mapName, int kills, int deaths) {
-        this.user = user;
+    public MatchHistory(String roomId, String mapName, Long winnerId, int durationSeconds) {
+        this.roomId = roomId;
         this.mapName = mapName;
-        this.kills = kills;
-        this.deaths = deaths;
-        this.playedAt = Instant.now();
+        this.winnerId = winnerId;
+        this.durationSeconds = durationSeconds;
+        this.endedAt = Instant.now();
     }
 
     @PrePersist
-    void initializePlayedAt() {
-        if (playedAt == null) {
-            playedAt = Instant.now();
+    void initializeEndedAt() {
+        if (endedAt == null) {
+            endedAt = Instant.now();
         }
     }
 }

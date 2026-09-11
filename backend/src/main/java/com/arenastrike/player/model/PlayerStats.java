@@ -14,13 +14,19 @@ public class PlayerStats {
     private User user;
 
     @Column(nullable = false)
-    private long lifetimeKills;
+    private long totalMatches;
 
     @Column(nullable = false)
-    private long lifetimeDeaths;
+    private long wins;
 
     @Column(nullable = false)
-    private long matchesPlayed;
+    private long totalKills;
+
+    @Column(nullable = false)
+    private long totalDeaths;
+
+    @Column(nullable = false)
+    private long headshotKills;
 
     protected PlayerStats() {
     }
@@ -30,7 +36,21 @@ public class PlayerStats {
     }
 
     public Long getUserId() { return userId; }
-    public long getLifetimeKills() { return lifetimeKills; }
-    public long getLifetimeDeaths() { return lifetimeDeaths; }
-    public long getMatchesPlayed() { return matchesPlayed; }
+    public User getUser() { return user; }
+    public long getTotalMatches() { return totalMatches; }
+    public long getWins() { return wins; }
+    public long getTotalKills() { return totalKills; }
+    public long getTotalDeaths() { return totalDeaths; }
+    public long getHeadshotKills() { return headshotKills; }
+    public double getKdr() { return totalDeaths == 0 ? totalKills : (double) totalKills / totalDeaths; }
+
+    public void recordMatch(int kills, int deaths, boolean won, int headshots) {
+        totalMatches++;
+        totalKills += kills;
+        totalDeaths += deaths;
+        headshotKills += headshots;
+        if (won) {
+            wins++;
+        }
+    }
 }

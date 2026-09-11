@@ -42,11 +42,17 @@
             <span id="connection-status">Loading 3D scene...</span>
             <span id="room-status">Room: not connected</span>
             <span id="match-timer">Waiting for players</span>
+            <span id="weapon-ammo">Ammo: --</span>
+            <span id="health-label">Health: 100</span>
+            <div id="health-bar" role="progressbar" aria-label="Player health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+                <span></span>
+            </div>
         </section>
         <canvas id="game-canvas" aria-label="3D game viewport"></canvas>
         <div id="crosshair" aria-hidden="true">
             <span></span><span></span><span></span><span></span>
         </div>
+        <div id="hit-marker" hidden aria-live="polite"></div>
         <aside id="kill-feed" aria-live="polite" aria-label="Live kill feed"></aside>
         <section id="match-over" hidden aria-live="assertive"></section>
         <p id="controls-hint">W forward, S backward, A left, D right. Right-click ADS. Left-click fire.</p>

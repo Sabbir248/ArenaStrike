@@ -22,7 +22,7 @@ public class GameSessionDisconnectHandler {
     public void onDisconnect(SessionDisconnectEvent event) {
         gameStateService.disconnectSession(event.getSessionId()).ifPresent(exit -> {
             messagingTemplate.convertAndSend(
-                    "/topic/rooms/" + exit.roomCode() + "/exits", exit);
+                    "/topic/room/" + exit.roomCode() + "/events", exit);
         });
     }
 }

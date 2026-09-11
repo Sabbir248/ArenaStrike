@@ -9,6 +9,9 @@ const roomStatusElement = document.querySelector("#room-status");
 const matchTimerElement = document.querySelector("#match-timer");
 const killFeedElement = document.querySelector("#kill-feed");
 const matchOverElement = document.querySelector("#match-over");
+const weaponAmmoElement = document.querySelector("#weapon-ammo");
+const healthLabelElement = document.querySelector("#health-label");
+const healthBarElement = document.querySelector("#health-bar");
 const renderer = new ArenaStrikeRenderer(canvas);
 const socket = new ArenaStrikeSocket();
 const sounds = new ArenaStrikeSoundManager();
@@ -27,30 +30,72 @@ let lastNetworkUpdate = 0;
 let verticalVelocity = 0;
 let onGround = true;
 let stance = "STANDING";
+let inputEnabled = true;
+let gameRunning = false;
+let animationFrameId = null;
+let teardownComplete = false;
+let unloadHandler = null;
+const MAGAZINE_SIZES = {
+    PISTOL: 12,
+    ASSAULT_RIFLE: 30,
+    SMG: 25,
+    SHOTGUN: 2,
+    BOLT_ACTION_RIFLE: 5
+};
+weaponAmmoElement.textContent = `${weapon.replaceAll("_", " ")} ammo: ${MAGAZINE_SIZES[weapon] || "--"}`;
 
-document.addEventListener("keydown", (event) => {
+function onKeyDown(event) {
+    if (!inputEnabled) return;
     if (["KeyW", "KeyA", "KeyS", "KeyD", "Space"].includes(event.code)) {
         event.preventDefault();
+    }
+
+    function stopClientLoops() {
+        gameRunning = false;
+        keys.clear();
+        movement.forward = 0;
+        movement.strafe = 0;
+        verticalVelocity = 0;
+        onGround = true;
+        if (animationFrameId !== null) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+        }
+        renderer.resetEntities();
+        sounds.stop();
+    }
+
+    function handleBeforeUnload() {
+        if (teardownComplete) {
+            return;
+        }
+        teardownComplete = true;
+        detachInputListeners();
+        stopClientLoops();
+        socket.disconnect(roomCode, playerId);
     }
     keys.add(event.code);
     if (event.code === "KeyZ") {
         stance = stance === "PRONE" ? "STANDING" : "PRONE";
     }
-});
-document.addEventListener("keyup", (event) => {
+}
+function onKeyUp(event) {
+    if (!inputEnabled) return;
     if (["KeyW", "KeyA", "KeyS", "KeyD", "Space"].includes(event.code)) {
         event.preventDefault();
     }
     keys.delete(event.code);
-});
-window.addEventListener("blur", () => keys.clear());
-canvas.addEventListener("click", () => {
+}
+function onWindowBlur() { keys.clear(); }
+function onCanvasClick() {
+    if (!inputEnabled) return;
     sounds.unlock();
     if (document.pointerLockElement !== canvas) {
         canvas.requestPointerLock();
     }
-});
-canvas.addEventListener("mousedown", (event) => {
+}
+function onMouseDown(event) {
+    if (!inputEnabled) return;
     if (event.button === 2) {
         event.preventDefault();
         sounds.unlock();
@@ -62,26 +107,53 @@ canvas.addEventListener("mousedown", (event) => {
     }
     renderer.fireWeapon();
     sounds.fire();
-    const hit = renderer.raycastOpponent();
-    if (hit && socket.client?.connected) {
-        socket.shoot(roomCode, playerId, hit.targetId, hit.hitLocation, weapon);
+    if (socket.client?.connected) {
+        socket.shoot(roomCode, {
+            action: "FIRE",
+            timestamp: Date.now(),
+            angle: renderer.camera.rotation.x,
+            weaponId: weapon
+        });
     }
-});
-canvas.addEventListener("mouseup", (event) => {
+}
+function onMouseUp(event) {
+    if (!inputEnabled) return;
     if (event.button === 2) {
         event.preventDefault();
         renderer.setAiming(false);
     }
-});
-canvas.addEventListener("contextmenu", (event) => event.preventDefault());
-document.addEventListener("mousemove", (event) => {
+}
+function onContextMenu(event) { event.preventDefault(); }
+function onMouseMove(event) {
+    if (!inputEnabled) return;
     if (document.pointerLockElement !== canvas) {
         return;
     }
     yaw -= event.movementX * 0.002;
     pitch = Math.max(-1.45, Math.min(1.45, pitch - event.movementY * 0.002));
     renderer.camera.rotation.set(pitch, yaw, 0);
-});
+}
+function detachInputListeners() {
+    inputEnabled = false;
+    keys.clear();
+    window.removeEventListener("keydown", onKeyDown);
+    window.removeEventListener("keyup", onKeyUp);
+    window.removeEventListener("blur", onWindowBlur);
+    canvas.removeEventListener("click", onCanvasClick);
+    canvas.removeEventListener("mousedown", onMouseDown);
+    canvas.removeEventListener("mouseup", onMouseUp);
+    canvas.removeEventListener("contextmenu", onContextMenu);
+    window.removeEventListener("mousemove", onMouseMove);
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+}
+window.addEventListener("keydown", onKeyDown);
+window.addEventListener("keyup", onKeyUp);
+window.addEventListener("blur", onWindowBlur);
+canvas.addEventListener("click", onCanvasClick);
+canvas.addEventListener("mousedown", onMouseDown);
+canvas.addEventListener("mouseup", onMouseUp);
+canvas.addEventListener("contextmenu", onContextMenu);
+window.addEventListener("mousemove", onMouseMove);
 
 function updateMovement(deltaSeconds) {
     // W follows the camera forward vector; S reverses it. A/D use camera right.
@@ -95,6 +167,11 @@ function updateMovement(deltaSeconds) {
         sounds.jump();
         verticalVelocity = 6.5;
         onGround = false;
+    }
+    if (!onGround) {
+        stance = "JUMPING";
+    } else if (stance === "JUMPING") {
+        stance = "STANDING";
     }
     verticalVelocity -= 18 * deltaSeconds;
     const eyeHeight = stance === "PRONE" ? 0.65 : stance === "CROUCHING" ? 1.15 : 1.7;
@@ -137,15 +214,12 @@ function updateMovement(deltaSeconds) {
 }
 
 function publishLocalState() {
-    socket.publishState(roomCode, {
+    socket.publishInput(roomCode, {
         playerId,
-        position: {
-            x: renderer.camera.position.x,
-            y: renderer.camera.position.y,
-            z: renderer.camera.position.z
-        },
+        forward: movement.forward,
+        strafe: movement.strafe,
+        jump: keys.has("Space"),
         rotation: { x: pitch, y: yaw, z: 0 },
-        health: 100,
         currentWeapon: weapon,
         stance
     });
@@ -156,6 +230,8 @@ function formatKill(event) {
 }
 
 async function startGame() {
+    gameRunning = true;
+    teardownComplete = false;
     document.querySelector("#lobby-screen").hidden = true;
     await renderer.loadMap(selectedMap);
     await renderer.loadPlayerAssets();
@@ -175,9 +251,13 @@ async function startGame() {
         },
         (state) => {
             renderer.updateRemotePlayers(state.players, playerId);
-            matchTimerElement.textContent = state.matchStatus === "RUNNING"
+            const local = state.players.find((player) => player.playerId === playerId);
+            if (local) {
+                updateHealth(local.health);
+            }
+            matchTimerElement.textContent = state.roomState === "ACTIVE"
                 ? `Time: ${Math.floor(state.remainingSeconds / 60)}:${String(state.remainingSeconds % 60).padStart(2, "0")}`
-                : state.matchStatus === "OVER" ? "Match over" : "Waiting for players";
+                : state.roomState === "FINISHED" ? "Match over" : "Waiting for players";
         },
         (message) => { statusElement.textContent = message; },
         (event) => {
@@ -189,11 +269,7 @@ async function startGame() {
             window.setTimeout(() => entry.remove(), 8000);
         },
         (event) => {
-            sounds.kill();
-            matchOverElement.hidden = false;
-            matchOverElement.textContent = event.winnerName
-                ? `Match Over — ${event.winnerName} wins with ${event.verifiedKills} kills`
-                : "Match Over — no winner";
+            handleMatchOver(event);
         },
         (event) => {
             const entry = document.createElement("div");
@@ -201,13 +277,39 @@ async function startGame() {
             entry.textContent = `${event.displayName} left the match`;
             killFeedElement.prepend(entry);
             window.setTimeout(() => entry.remove(), 5000);
-        }
+        },
+        (event) => {
+            if (event.hit) {
+                renderer.showHitMarker(event.hit);
+            }
+        },
+        (event) => {
+            matchTimerElement.textContent = `Time: ${Math.floor(event.remainingSeconds / 60)}:${String(event.remainingSeconds % 60).padStart(2, "0")}`;
+        },
+        (event) => {
+            weaponAmmoElement.textContent = `${event.weaponId.replaceAll("_", " ")} ammo: ${event.currentAmmo}`;
+        },
+        handleUnexpectedDisconnect
     );
-    window.addEventListener("beforeunload", () => socket.disconnect(roomCode, playerId));
-    requestAnimationFrame(renderFrame);
+    if (unloadHandler) {
+        window.removeEventListener("beforeunload", unloadHandler);
+    }
+    unloadHandler = handleBeforeUnload;
+    window.addEventListener("beforeunload", unloadHandler, { once: true });
+    animationFrameId = requestAnimationFrame(renderFrame);
+}
+
+function updateHealth(health) {
+    const value = Math.max(0, Math.min(100, Number(health) || 0));
+    healthLabelElement.textContent = `Health: ${value}`;
+    healthBarElement.setAttribute("aria-valuenow", String(value));
+    healthBarElement.firstElementChild.style.width = `${value}%`;
+    healthBarElement.firstElementChild.style.backgroundColor =
+        value <= 25 ? "#e05d44" : value <= 50 ? "#e8b04a" : "#55c878";
 }
 
 function renderFrame(now) {
+    if (!gameRunning) return;
     const deltaSeconds = Math.min((now - lastTime) / 1000, 0.1);
     lastTime = now;
     updateMovement(deltaSeconds);
@@ -217,7 +319,37 @@ function renderFrame(now) {
         lastNetworkUpdate = now;
     }
     renderer.render();
-    requestAnimationFrame(renderFrame);
+    animationFrameId = requestAnimationFrame(renderFrame);
+}
+
+function handleMatchOver(event) {
+    if (teardownComplete) return;
+    teardownComplete = true;
+    detachInputListeners();
+    stopClientLoops();
+    socket.disconnect(roomCode, playerId);
+    sounds.kill();
+    matchOverElement.hidden = false;
+    const leaderboard = (event.results || [])
+        .map((result, index) => `${index + 1}. ${result.displayName} ${result.kills}K/${result.deaths}D`)
+        .join(" | ");
+    matchOverElement.textContent = event.winnerName
+        ? `Match Over — ${event.winnerName} wins with ${event.winnerKills} kills${leaderboard ? ` | ${leaderboard}` : ""}`
+        : `Match Over — no winner${leaderboard ? ` | ${leaderboard}` : ""}`;
+}
+
+function handleUnexpectedDisconnect() {
+    if (!gameRunning || teardownComplete) return;
+    teardownComplete = true;
+    detachInputListeners();
+    stopClientLoops();
+    killFeedElement.replaceChildren();
+    matchOverElement.hidden = true;
+    matchTimerElement.textContent = "Disconnected";
+    statusElement.textContent = "Connection lost. Return to the lobby.";
+    document.querySelector("#lobby-screen").hidden = false;
+    document.querySelector("#lobby-error").textContent =
+        "Connection lost. You have been returned to the lobby.";
 }
 
 async function submitLobby(event) {

@@ -28,6 +28,7 @@ export class ArenaStrikeRenderer {
         this.gunTemplates = new Map();
         this.firstPersonWeapon = null;
         this.muzzleFlash = null;
+        this.hitMarkerTimeout = null;
         this.weaponRecoil = 0;
         this.aiming = false;
         this.raycastTargets = [];
@@ -306,7 +307,10 @@ export class ArenaStrikeRenderer {
             if (!remote) {
                 remote = {
                     mesh: this.createPlayerModel(0xe05d44, player.currentWeapon),
-                    target: player,
+                    previous: { ...player.position },
+                    target: { ...player.position },
+                    targetRotation: player.rotation.y,
+                    stance: player.stance,
                     weapon: player.currentWeapon
                 };
                 this.scene.add(remote.mesh);
@@ -318,7 +322,10 @@ export class ArenaStrikeRenderer {
                 this.scene.add(remote.mesh);
                 remote.weapon = player.currentWeapon;
             }
-            remote.target = player;
+            remote.previous = { ...remote.target };
+            remote.target = { ...player.position };
+            remote.targetRotation = player.rotation.y;
+            remote.stance = player.stance;
         });
         this.raycastTargets = [...this.remotePlayers.entries()].map(([playerId, remote]) => ({
             playerId, mesh: remote.mesh
@@ -333,7 +340,8 @@ export class ArenaStrikeRenderer {
         if (!intersections.length) {
             return null;
         }
-        let object = intersections[0].object;
+
+            let object = intersections[0].object;
         while (object.parent && !this.raycastTargets.some((target) => target.mesh === object)) {
             object = object.parent;
         }
@@ -344,18 +352,66 @@ export class ArenaStrikeRenderer {
         } : null;
     }
 
+    getAimDirection() {
+        const direction = new THREE.Vector3();
+        this.camera.getWorldDirection(direction);
+        return { x: direction.x, y: direction.y, z: direction.z };
+    }
+
+    showHitMarker(event) {
+        const marker = document.querySelector("#hit-marker");
+        if (!marker) {
+            return;
+        }
+        marker.textContent = `${event.hitZone} ${event.damage} (${event.currentHp} HP)`;
+        marker.hidden = false;
+        window.clearTimeout(this.hitMarkerTimeout);
+        this.hitMarkerTimeout = window.setTimeout(() => {
+            marker.hidden = true;
+        }, 700);
+    }
+
     interpolateRemotePlayers(deltaSeconds) {
-        const blend = 1 - Math.exp(-12 * deltaSeconds);
-        this.remotePlayers.forEach(({ mesh, target }) => {
-            mesh.position.lerp(new THREE.Vector3(target.position.x, target.position.y, target.position.z), blend);
-            mesh.rotation.y = THREE.MathUtils.lerp(mesh.rotation.y, target.rotation.y, blend);
-            this.applyStance(mesh, target.stance);
+        const blend = 1 - Math.exp(-14 * deltaSeconds);
+        this.remotePlayers.forEach((remote) => {
+            const target = remote.target;
+            const next = new THREE.Vector3(target.x, target.y, target.z);
+            remote.mesh.position.lerp(next, blend);
+            remote.mesh.rotation.y = THREE.MathUtils.lerp(
+                remote.mesh.rotation.y, remote.targetRotation, blend);
+            this.applyStance(remote.mesh, remote.stance);
         });
     }
 
+    resetEntities() {
+        this.remotePlayers.forEach(({ mesh }) => this.scene.remove(mesh));
+        this.remotePlayers.clear();
+        this.raycastTargets = [];
+        if (this.localPlayer) {
+            this.localPlayer.visible = false;
+        }
+        if (this.muzzleFlash) {
+            this.muzzleFlash.visible = false;
+        }
+        this.weaponRecoil = 0;
+        this.aiming = false;
+        if (this.hitMarkerTimeout !== null) {
+            window.clearTimeout(this.hitMarkerTimeout);
+            this.hitMarkerTimeout = null;
+        }
+        const marker = document.querySelector("#hit-marker");
+        if (marker) marker.hidden = true;
+    }
+
     applyStance(model, stance) {
-        const y = stance === "PRONE" ? 0.45 : stance === "CROUCHING" ? 0.7 : 1;
-        model.scale.set(1, y, stance === "PRONE" ? 1.25 : 1);
+        const scale = {
+            STANDING: 1,
+            CROUCHING: 0.6,
+            PRONE: 0.3,
+            JUMPING: 1.08
+        }[stance] || 1;
+        model.scale.set(1, scale, stance === "PRONE" ? 1.25 : 1);
+        model.position.y = stance === "PRONE" ? 0.05 : 0;
     }
 
     render() {
@@ -375,6 +431,8 @@ export class ArenaStrikeRenderer {
                 this.firstPersonWeapon.position.z, -0.62 + this.weaponRecoil, 0.3
             );
             this.weaponRecoil *= 0.72;
+            this.firstPersonWeapon.rotation.x = THREE.MathUtils.lerp(
+                this.firstPersonWeapon.rotation.x, this.aiming ? -0.02 : 0, 0.2);
         }
         this.renderer.render(this.scene, this.camera);
     }

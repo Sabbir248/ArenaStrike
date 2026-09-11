@@ -25,19 +25,35 @@ public class GameRoomWebSocketController {
         gameStateService.joinRoom(roomCode, command.player(), headers.getSessionId());
     }
 
-    @MessageMapping("/rooms/{roomCode}/state")
+    @MessageMapping("/rooms/{roomCode}/input")
     public void updateState(
             @DestinationVariable String roomCode,
-            UpdatePlayerStateCommand command) {
-        gameStateService.updatePlayer(roomCode, command);
+            PlayerInputCommand command) {
+        gameStateService.enqueueInput(roomCode, command);
     }
 
     @MessageMapping("/rooms/{roomCode}/shoot")
     public void shoot(
             @DestinationVariable String roomCode,
-            ShootCommand command) {
-        gameStateService.shoot(roomCode, command).ifPresent(event ->
-                messagingTemplate.convertAndSend("/topic/rooms/" + roomCode + "/kills", event));
+            ShootCommand command,
+            SimpMessageHeaderAccessor headers) {
+        VerifiedShot result = gameStateService.shoot(roomCode, headers.getSessionId(), command);
+        messagingTemplate.convertAndSend("/topic/room/" + roomCode + "/events", result);
+        messagingTemplate.convertAndSend("/topic/room/" + roomCode + "/ammo",
+                new AmmoStateEvent("AMMO_STATE", result.attackerId(), result.weaponId(),
+                        result.currentAmmo(), result.reloading()));
+        if (result.hit() != null) {
+            messagingTemplate.convertAndSend("/topic/room/" + roomCode + "/hit", result.hit());
+        }
+    }
+
+    @MessageMapping("/rooms/{roomCode}/reload")
+    public void reload(
+            @DestinationVariable String roomCode,
+            ReloadCommand command,
+            SimpMessageHeaderAccessor headers) {
+        AmmoStateEvent event = gameStateService.reload(roomCode, headers.getSessionId(), command);
+        messagingTemplate.convertAndSend("/topic/room/" + roomCode + "/ammo", event);
     }
 
     @MessageMapping("/rooms/{roomCode}/leave")

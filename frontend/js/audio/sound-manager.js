@@ -46,4 +46,11 @@ export class ArenaStrikeSoundManager {
     kill() {
         this.tone(440, 880, 0.18, 0.08, "square");
     }
+
+    stop() {
+        if (this.context) {
+            this.context.close();
+            this.context = null;
+        }
+    }
 }
