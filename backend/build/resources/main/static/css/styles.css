@@ -219,15 +219,114 @@ body {
 
 #match-over {
     position: absolute;
-    z-index: 2;
-    inset: 50% auto auto 50%;
-    transform: translate(-50%, -50%);
-    padding: 1.25rem 2rem;
-    border: 1px solid #ffca58;
-    border-radius: 0.4rem;
-    background: rgb(8 16 24 / 94%);
+    z-index: 100;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+#match-over[hidden] {
+    display: none;
+}
+
+.match-over-modal {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 2.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    background: rgba(13, 17, 23, 0.6);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    min-width: 480px;
+}
+
+.match-banner {
+    margin: 0;
+    font-size: 2.8rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    text-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+}
+
+.match-banner.victory {
     color: #ffca58;
-    font-size: 1.4rem;
+}
+
+.match-banner.defeat {
+    color: #ff8a80;
+}
+
+.leaderboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    color: #e6edf3;
+    font-size: 1rem;
+}
+
+.leaderboard-table th, .leaderboard-table td {
+    padding: 0.75rem 1rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.leaderboard-table th {
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+}
+
+.leaderboard-table tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.match-actions {
+    display: flex;
+    gap: 1rem;
+    width: 100%;
+    margin-top: 1rem;
+}
+
+.match-actions button {
+    flex: 1;
+    padding: 0.85rem;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: transform 0.1s, background-color 0.2s;
+}
+
+.match-actions button:active {
+    transform: scale(0.98);
+}
+
+.btn-primary {
+    background: #ffca58;
+    color: #0d1117;
+    border: none;
+}
+
+.btn-primary:hover {
+    background: #ffd57a;
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.05);
+    color: #e6edf3;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
 }
 
 #controls-hint {

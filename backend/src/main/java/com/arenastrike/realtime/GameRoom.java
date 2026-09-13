@@ -116,13 +116,14 @@ public final class GameRoom implements AutoCloseable {
             messagingTemplate.convertAndSend("/topic/room/" + roomId + "/game-over", summary);
         } catch (MessagingException exception) {
             LOGGER.warn("Could not publish game-over for room {}", roomId, exception);
-        } finally {
+        }
+        executor.schedule(() -> {
             try {
                 finishCallback.accept(summary);
             } finally {
                 close();
             }
-        }
+        }, 15, TimeUnit.SECONDS);
     }
 
     private synchronized void cancelTick() {

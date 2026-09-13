@@ -2,44 +2,38 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.m
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/utils/SkeletonUtils.js";
 import { MODEL_BASE_URL } from "../config.js";
-
-const WEAPON_MODEL_URLS = {
-    PISTOL: `${MODEL_BASE_URL}/Desert%20Eagle.glb`,
-    ASSAULT_RIFLE: `${MODEL_BASE_URL}/AKM.glb`,
-    SMG: `${MODEL_BASE_URL}/UMP.glb`,
-    SHOTGUN: `${MODEL_BASE_URL}/S686.glb`,
-    BOLT_ACTION_RIFLE: `${MODEL_BASE_URL}/AWM.glb`
-};
+import { createTacticalSoldierModel } from "./soldier.js";
+import { createDesertEagle, createAKM, createUMP, createS686, createAWM } from "./weapons.js";
 
 const WEAPON_CONFIGS = {
     ASSAULT_RIFLE: {
         position: new THREE.Vector3(0.22, -0.20, -0.38),
         rotation: new THREE.Euler(0, 0.05, 0),
-        scale: new THREE.Vector3(0.3, 0.3, 0.3),
+        scale: new THREE.Vector3(1, 1, 1),
         adsPosition: new THREE.Vector3(0, -0.15, -0.30)
     },
     SHOTGUN: {
         position: new THREE.Vector3(0.24, -0.22, -0.42),
-        rotation: new THREE.Euler(0, -Math.PI / 2, 0),
-        scale: new THREE.Vector3(0.3, 0.3, 0.3),
+        rotation: new THREE.Euler(0, 0.05, 0),
+        scale: new THREE.Vector3(1, 1, 1),
         adsPosition: new THREE.Vector3(0, -0.15, -0.30)
     },
     PISTOL: {
         position: new THREE.Vector3(0.20, -0.20, -0.38),
         rotation: new THREE.Euler(0, 0.05, 0),
-        scale: new THREE.Vector3(0.3, 0.3, 0.3),
+        scale: new THREE.Vector3(1, 1, 1),
         adsPosition: new THREE.Vector3(0, -0.12, -0.25)
     },
     SMG: {
         position: new THREE.Vector3(0.22, -0.20, -0.38),
         rotation: new THREE.Euler(0, 0.05, 0),
-        scale: new THREE.Vector3(0.3, 0.3, 0.3),
+        scale: new THREE.Vector3(1, 1, 1),
         adsPosition: new THREE.Vector3(0, -0.15, -0.30)
     },
     BOLT_ACTION_RIFLE: {
         position: new THREE.Vector3(0.25, -0.22, -0.40),
         rotation: new THREE.Euler(0, 0.05, 0),
-        scale: new THREE.Vector3(0.3, 0.3, 0.3),
+        scale: new THREE.Vector3(1, 1, 1),
         adsPosition: new THREE.Vector3(0, -0.15, -0.30)
     }
 };
@@ -64,7 +58,6 @@ export class ArenaStrikeRenderer {
         this.characterTemplate = null;
         this.gunTemplates = new Map();
         this.firstPersonWeapon = null;
-        this.muzzleFlash = null;
         this.hitMarkerTimeout = null;
         this.weaponRecoil = 0;
         this.aiming = false;
@@ -193,23 +186,8 @@ export class ArenaStrikeRenderer {
         return mesh;
     }
 
-    async loadPlayerAssets(characterUrl = `${MODEL_BASE_URL}/Character.glb`) {
-        const weaponEntries = Object.entries(WEAPON_MODEL_URLS);
-        const [character, ...weapons] = await Promise.allSettled([
-            this.loader.loadAsync(characterUrl),
-            ...weaponEntries.map(([, url]) => this.loader.loadAsync(url))
-        ]);
-        this.characterTemplate = character.status === "fulfilled" ? character.value.scene : null;
-        if (this.characterTemplate) {
-            this.normalizeModel(this.characterTemplate, 1.8, true);
-        }
-        weapons.forEach((result, index) => {
-            if (result.status === "fulfilled") {
-                const gun = result.value.scene;
-                this.normalizeModel(gun, 1.25);
-                this.gunTemplates.set(weaponEntries[index][0], gun);
-            }
-        });
+    async loadPlayerAssets() {
+        return Promise.resolve();
     }
 
     normalizeModel(model, targetSize, alignToGround = false) {
@@ -360,55 +338,36 @@ export class ArenaStrikeRenderer {
         });
     }
 
-    createPlayerModel(color, weapon = "ASSAULT_RIFLE") {
-        const root = new THREE.Group();
-        let body;
-        if (this.characterTemplate) {
-            body = SkeletonUtils.clone(this.characterTemplate);
-        } else {
-            body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.1, 4, 8),
-                new THREE.MeshStandardMaterial({ color }));
-        }
+    createPlayerModel(colorHex, weapon = "ASSAULT_RIFLE") {
+        const root = createTacticalSoldierModel(colorHex);
 
-        let rightHand = null;
-        body.traverse((object) => {
-            if (object.isMesh) {
-                object.castShadow = true;
-                object.receiveShadow = true;
-                object.frustumCulled = false;
-                object.userData.hitLocation = object.name.toLowerCase().includes("head")
-                    ? "HEAD"
-                    : object.name.toLowerCase().includes("arm") || object.name.toLowerCase().includes("leg")
-                        ? "LIMB" : "TORSO";
-            }
-            const name = object.name.toLowerCase();
-            if (object.isBone && (name.includes("right") || name.includes("r_")) && (name.includes("hand") || name.includes("wrist"))) {
-                rightHand = object;
+        let rightHandSocket = null;
+        root.traverse((object) => {
+            if (object.name === "RightHandSocket") {
+                rightHandSocket = object;
             }
         });
-        root.add(body);
 
         const weaponMesh = this.createWeaponModel(weapon, false);
-        if (rightHand) {
-            const socket = new THREE.Group();
-            socket.name = "RightHandSocket";
-            socket.add(weaponMesh);
-            rightHand.add(socket);
+        if (rightHandSocket) {
+            rightHandSocket.add(weaponMesh);
         } else {
             root.add(weaponMesh);
         }
         
-        root.userData.walkPhase = Math.random() * Math.PI * 2;
         return root;
     }
 
     createWeaponModel(weapon, firstPerson) {
-        const gunTemplate = this.gunTemplates.get(weapon)
-            || this.gunTemplates.get("ASSAULT_RIFLE");
-        const gun = gunTemplate
-            ? gunTemplate.clone(true)
-            : new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.8),
-                new THREE.MeshStandardMaterial({ color: 0x20252a }));
+        let gun;
+        switch (weapon) {
+            case "PISTOL": gun = createDesertEagle(); break;
+            case "SMG": gun = createUMP(); break;
+            case "SHOTGUN": gun = createS686(); break;
+            case "BOLT_ACTION_RIFLE": gun = createAWM(); break;
+            case "ASSAULT_RIFLE":
+            default: gun = createAKM(); break;
+        }
         
         if (firstPerson) {
             const config = WEAPON_CONFIGS[weapon] || WEAPON_CONFIGS["ASSAULT_RIFLE"];
@@ -431,21 +390,15 @@ export class ArenaStrikeRenderer {
         this.firstPersonWeapon = this.createWeaponModel(weapon, true);
         this.viewmodelCamera.add(this.firstPersonWeapon);
         
-        this.muzzleLight = new THREE.PointLight(0xffaa33, 0, 5);
-        this.muzzleLight.position.set(0, 0.05, -1.5);
-        this.firstPersonWeapon.add(this.muzzleLight);
+        let muzzleSocket = this.firstPersonWeapon.getObjectByName("muzzleSocket");
+        if (!muzzleSocket) {
+            muzzleSocket = new THREE.Group();
+            muzzleSocket.position.set(0, 0, -0.5);
+            this.firstPersonWeapon.add(muzzleSocket);
+        }
 
-        const flashMaterial = new THREE.SpriteMaterial({ 
-            color: 0xffdd88, 
-            blending: THREE.AdditiveBlending,
-            transparent: true,
-            opacity: 0
-        });
-        this.muzzleSprite = new THREE.Sprite(flashMaterial);
-        this.muzzleSprite.scale.set(0.6, 0.6, 0.6);
-        this.muzzleSprite.position.set(0, 0.05, -1.5);
-        this.firstPersonWeapon.add(this.muzzleSprite);
-        
+        this.muzzleLight = new THREE.PointLight(0xffaa33, 0, 4.0);
+        muzzleSocket.add(this.muzzleLight);
         this.viewmodelScene.add(this.viewmodelCamera);
         this.scene.add(this.camera);
     }
@@ -459,21 +412,19 @@ export class ArenaStrikeRenderer {
             return;
         }
         this.weaponRecoil = 0.08;
-        
-        if (this.muzzleLight) this.muzzleLight.intensity = 2;
-        if (this.muzzleSprite) {
-            this.muzzleSprite.material.opacity = 1;
-            this.muzzleSprite.material.rotation = Math.random() * Math.PI * 2;
+        if (this.muzzleLight) {
+            this.muzzleLight.intensity = 2.0;
+            window.setTimeout(() => {
+                if (this.muzzleLight) this.muzzleLight.intensity = 0;
+            }, 40);
         }
         
-        window.setTimeout(() => {
-            if (this.muzzleLight) this.muzzleLight.intensity = 0;
-            if (this.muzzleSprite) this.muzzleSprite.material.opacity = 0;
-        }, 50);
-
         if (pitch !== undefined && yaw !== undefined) {
             const startPoint = new THREE.Vector3();
-            this.muzzleLight.getWorldPosition(startPoint);
+            if (this.firstPersonWeapon) {
+                const ms = this.firstPersonWeapon.getObjectByName("muzzleSocket");
+                if (ms) ms.getWorldPosition(startPoint);
+            }
             
             const direction = new THREE.Vector3(
                 -Math.sin(yaw) * Math.cos(pitch),
@@ -530,6 +481,18 @@ export class ArenaStrikeRenderer {
         this.remotePlayers.forEach((remote, playerId) => {
             if (!activeIds.has(playerId) || playerId === localPlayerId) {
                 this.scene.remove(remote.mesh);
+                remote.mesh.traverse((child) => {
+                    if (child.isMesh) {
+                        if (child.geometry) child.geometry.dispose();
+                        if (child.material) {
+                            if (Array.isArray(child.material)) {
+                                child.material.forEach(m => m.dispose());
+                            } else {
+                                child.material.dispose();
+                            }
+                        }
+                    }
+                });
                 this.remotePlayers.delete(playerId);
             }
         });
@@ -537,13 +500,14 @@ export class ArenaStrikeRenderer {
             if (player.playerId === localPlayerId) {
                 return;
             }
+            if (Number.isNaN(player.position.x) || Number.isNaN(player.position.y) || Number.isNaN(player.position.z) || player.position.y < 0) {
+                return;
+            }
             let remote = this.remotePlayers.get(player.playerId);
             if (!remote) {
                 remote = {
                     mesh: this.createPlayerModel(0xe05d44, player.currentWeapon),
-                    previous: { ...player.position },
-                    target: { ...player.position },
-                    targetRotation: player.rotation.y,
+                    snapshotBuffer: [],
                     stance: player.stance,
                     weapon: player.currentWeapon
                 };
@@ -556,10 +520,15 @@ export class ArenaStrikeRenderer {
                 this.scene.add(remote.mesh);
                 remote.weapon = player.currentWeapon;
             }
-            remote.previous = { ...remote.target };
-            remote.target = { ...player.position };
-            remote.targetRotation = player.rotation.y;
-            remote.stance = player.stance;
+            remote.snapshotBuffer.push({
+                timestamp: performance.now(),
+                position: { ...player.position },
+                rotation: player.rotation.y,
+                stance: player.stance
+            });
+            if (remote.snapshotBuffer.length > 20) {
+                remote.snapshotBuffer.shift();
+            }
         });
         this.raycastTargets = [...this.remotePlayers.entries()].map(([playerId, remote]) => ({
             playerId, mesh: remote.mesh
@@ -606,14 +575,55 @@ export class ArenaStrikeRenderer {
     }
 
     interpolateRemotePlayers(deltaSeconds) {
-        const blend = 1 - Math.exp(-14 * deltaSeconds);
+        const now = performance.now();
+        const renderTime = now - 100;
+
         this.remotePlayers.forEach((remote) => {
-            const target = remote.target;
-            const next = new THREE.Vector3(target.x, target.y, target.z);
-            remote.mesh.position.lerp(next, blend);
-            remote.mesh.rotation.y = THREE.MathUtils.lerp(
-                remote.mesh.rotation.y, remote.targetRotation, blend);
-            this.applyStance(remote.mesh, remote.stance);
+            const buffer = remote.snapshotBuffer;
+            if (!buffer || buffer.length === 0) return;
+
+            while (buffer.length > 2 && buffer[1].timestamp <= renderTime) {
+                buffer.shift();
+            }
+
+            const snap0 = buffer[0];
+            const snap1 = buffer.length > 1 ? buffer[1] : buffer[0];
+            
+            let speed = 0;
+            if (renderTime >= snap0.timestamp && renderTime <= snap1.timestamp && snap1.timestamp > snap0.timestamp) {
+                const alpha = (renderTime - snap0.timestamp) / (snap1.timestamp - snap0.timestamp);
+                const next = new THREE.Vector3().copy(snap0.position).lerp(snap1.position, alpha);
+                speed = remote.mesh.position.distanceTo(next) / deltaSeconds;
+                remote.mesh.position.copy(next);
+                remote.mesh.rotation.y = THREE.MathUtils.lerp(snap0.rotation, snap1.rotation, alpha);
+                this.applyStance(remote.mesh, snap1.stance);
+            } else if (renderTime > snap1.timestamp) {
+                const next = new THREE.Vector3().copy(snap1.position);
+                speed = remote.mesh.position.distanceTo(next) / deltaSeconds;
+                remote.mesh.position.copy(next);
+                remote.mesh.rotation.y = snap1.rotation;
+                this.applyStance(remote.mesh, snap1.stance);
+            } else {
+                const next = new THREE.Vector3().copy(snap0.position);
+                speed = remote.mesh.position.distanceTo(next) / deltaSeconds;
+                remote.mesh.position.copy(next);
+                remote.mesh.rotation.y = snap0.rotation;
+                this.applyStance(remote.mesh, snap0.stance);
+            }
+
+            if (speed > 0.5) {
+                remote.mesh.userData.walkPhase = (remote.mesh.userData.walkPhase || 0) + speed * 1.5 * deltaSeconds;
+            } else {
+                remote.mesh.userData.walkPhase = THREE.MathUtils.lerp(remote.mesh.userData.walkPhase || 0, 0, 0.1);
+            }
+            
+            const phase = remote.mesh.userData.walkPhase || 0;
+            if (remote.mesh.userData.leftLegPivot) {
+                remote.mesh.userData.leftLegPivot.rotation.x = Math.sin(phase) * 0.8;
+                remote.mesh.userData.rightLegPivot.rotation.x = Math.sin(phase + Math.PI) * 0.8;
+                remote.mesh.userData.leftArmPivot.rotation.x = -Math.PI / 2 + 0.4 + Math.sin(phase + Math.PI) * 0.3;
+                remote.mesh.userData.rightArmPivot.rotation.x = -Math.PI / 2 + 0.2 + Math.sin(phase) * 0.3;
+            }
         });
     }
 
@@ -624,11 +634,10 @@ export class ArenaStrikeRenderer {
         if (this.localPlayer) {
             this.localPlayer.visible = false;
         }
-        if (this.muzzleFlash) {
-            this.muzzleFlash.visible = false;
-        }
         this.weaponRecoil = 0;
         this.aiming = false;
+        this.isReloading = false;
+        this.reloadStartTime = 0;
         if (this.hitMarkerTimeout !== null) {
             window.clearTimeout(this.hitMarkerTimeout);
             this.hitMarkerTimeout = null;
@@ -648,14 +657,19 @@ export class ArenaStrikeRenderer {
         model.position.y = stance === "PRONE" ? 0.05 : 0;
     }
 
-    render() {
+    playReloadAnimation() {
+        this.isReloading = true;
+        this.reloadStartTime = performance.now();
+    }
+
+    render(deltaSeconds = 0.016) {
         const targetFov = this.aiming ? 50 : 75;
         this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 0.2);
         this.camera.updateProjectionMatrix();
         
         this.viewmodelCamera.fov = this.camera.fov;
         this.viewmodelCamera.updateProjectionMatrix();
-        this.viewmodelCamera.quaternion.copy(this.camera.quaternion);
+        this.viewmodelCamera.quaternion.slerp(this.camera.quaternion, 15 * deltaSeconds);
 
         if (this.firstPersonWeapon) {
             const horizontalVelocity = Math.hypot(
@@ -669,9 +683,63 @@ export class ArenaStrikeRenderer {
             const bobY = Math.abs(Math.cos(this.bobPhase)) * 0.015;
 
             const config = WEAPON_CONFIGS[this.currentWeaponType] || WEAPON_CONFIGS["ASSAULT_RIFLE"];
+            
+            let reloadRotX = 0;
+            let reloadPosY = 0;
+            let reloadPosZ = 0;
+
+            if (this.isReloading) {
+                const t = (performance.now() - this.reloadStartTime) / 1000;
+                if (t >= 2.5) {
+                    this.isReloading = false;
+                } else {
+                    const magazine = this.firstPersonWeapon.getObjectByName("magazine");
+                    const bolt = this.firstPersonWeapon.getObjectByName("bolt");
+                    if (magazine && magazine.userData.baseY === undefined) magazine.userData.baseY = magazine.position.y;
+                    if (bolt && bolt.userData.baseZ === undefined) bolt.userData.baseZ = bolt.position.z;
+
+                    if (t < 0.4) {
+                        const alpha = t / 0.4;
+                        reloadRotX = THREE.MathUtils.lerp(0, Math.PI / 4, alpha);
+                        reloadPosY = THREE.MathUtils.lerp(0, -0.1, alpha);
+                        reloadPosZ = THREE.MathUtils.lerp(0, 0.1, alpha);
+                    } else if (t < 1.2) {
+                        reloadRotX = Math.PI / 4;
+                        reloadPosY = -0.1;
+                        reloadPosZ = 0.1;
+                        if (magazine) {
+                            const alpha = (t - 0.4) / 0.8;
+                            magazine.position.y = THREE.MathUtils.lerp(magazine.userData.baseY, magazine.userData.baseY - 0.2, alpha);
+                        }
+                    } else if (t < 1.8) {
+                        reloadRotX = Math.PI / 4;
+                        reloadPosY = -0.1;
+                        reloadPosZ = 0.1;
+                        if (magazine) {
+                            const alpha = (t - 1.2) / 0.6;
+                            magazine.position.y = THREE.MathUtils.lerp(magazine.userData.baseY - 0.2, magazine.userData.baseY, alpha);
+                        }
+                    } else if (t < 2.2) {
+                        reloadRotX = Math.PI / 4;
+                        reloadPosY = -0.1;
+                        reloadPosZ = 0.1;
+                        if (bolt) {
+                            const alpha = (t - 1.8) / 0.4;
+                            const pull = alpha < 0.5 ? (alpha / 0.5) : (1 - (alpha - 0.5) / 0.5);
+                            bolt.position.z = THREE.MathUtils.lerp(bolt.userData.baseZ, bolt.userData.baseZ + 0.05, pull);
+                        }
+                    } else {
+                        const alpha = (t - 2.2) / 0.3;
+                        reloadRotX = THREE.MathUtils.lerp(Math.PI / 4, 0, alpha);
+                        reloadPosY = THREE.MathUtils.lerp(-0.1, 0, alpha);
+                        reloadPosZ = THREE.MathUtils.lerp(0.1, 0, alpha);
+                    }
+                }
+            }
+
             const targetX = this.aiming ? config.adsPosition.x : config.position.x + bobX;
-            const targetY = this.aiming ? config.adsPosition.y : config.position.y + bobY;
-            const targetZ = this.aiming ? config.adsPosition.z : config.position.z;
+            const targetY = this.aiming ? config.adsPosition.y : config.position.y + bobY + reloadPosY;
+            const targetZ = this.aiming ? config.adsPosition.z : config.position.z + reloadPosZ;
             
             this.firstPersonWeapon.position.x = THREE.MathUtils.lerp(
                 this.firstPersonWeapon.position.x, targetX, 0.2
@@ -685,13 +753,61 @@ export class ArenaStrikeRenderer {
             
             this.weaponRecoil *= 0.72;
             this.firstPersonWeapon.rotation.x = THREE.MathUtils.lerp(
-                this.firstPersonWeapon.rotation.x, this.aiming ? -0.02 : 0, 0.2);
+                this.firstPersonWeapon.rotation.x, (this.aiming ? -0.02 : 0) + reloadRotX, 0.2);
         }
         
         this.renderer.clear();
         this.renderer.render(this.scene, this.camera);
         this.renderer.clearDepth();
         this.renderer.render(this.viewmodelScene, this.viewmodelCamera);
+    }
+
+    disposeMaterial(material) {
+        if (!material) return;
+        if (material.map) material.map.dispose();
+        if (material.lightMap) material.lightMap.dispose();
+        if (material.bumpMap) material.bumpMap.dispose();
+        if (material.normalMap) material.normalMap.dispose();
+        if (material.specularMap) material.specularMap.dispose();
+        if (material.envMap) material.envMap.dispose();
+        if (material.roughnessMap) material.roughnessMap.dispose();
+        material.dispose();
+    }
+
+    dispose() {
+        const disposeObject = (object) => {
+            if (object.isMesh) {
+                if (object.geometry) object.geometry.dispose();
+                if (object.material) {
+                    if (Array.isArray(object.material)) {
+                        object.material.forEach(mat => this.disposeMaterial(mat));
+                    } else {
+                        this.disposeMaterial(object.material);
+                    }
+                }
+            }
+        };
+
+        this.scene.traverse(disposeObject);
+        this.viewmodelScene.traverse(disposeObject);
+
+        this.scene.clear();
+        this.viewmodelScene.clear();
+        
+        if (this.scene.background && this.scene.background.dispose) {
+            this.scene.background.dispose();
+        }
+
+        this.materials = {};
+        this.gunTemplates.clear();
+        this.remotePlayers.clear();
+        this.colliders = [];
+        this.localPlayer = null;
+        this.firstPersonWeapon = null;
+        this.muzzleLight = null;
+        this.muzzleSprite = null;
+        
+        this.addLighting();
     }
 
     resize() {

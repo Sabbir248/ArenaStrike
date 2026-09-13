@@ -47,8 +47,7 @@ public class GameStateService {
         this.statsService = statsService;
         this.roomManager = roomManager;
     }
-
-    public void joinRoom(String roomCode, PlayerState player, String sessionId) {
+    public RoomGameState joinRoom(String roomCode, PlayerState player, String sessionId) {
         String normalized = normalizeRoomCode(roomCode);
         GameRoomState gameRoom = room(normalized, lobbyMap(normalized), lobbyLimit(normalized));
         roomManager.computeIfAbsent(normalized,
@@ -66,6 +65,7 @@ public class GameStateService {
                 gameRoom.startIfFull(lobby.getPlayerLimit());
             }
         });
+        return gameRoom.snapshot();
     }
 
     public void updatePlayer(String roomCode, UpdatePlayerStateCommand update) {

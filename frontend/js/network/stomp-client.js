@@ -13,26 +13,54 @@ export class ArenaStrikeSocket {
         this.client = new window.StompJs.Client({
             webSocketFactory: () => new window.SockJS(this.endpoint),
             reconnectDelay: 3000,
+            heartbeatIncoming: 10000,
+            heartbeatOutgoing: 10000,
             onConnect: () => {
                 onStatus("Connected");
-                this.client.subscribe(`/topic/room/${roomCode}`, message => onState(JSON.parse(message.body)));
-                this.client.subscribe(`/topic/rooms/${roomCode}/kills`, message => onKill(JSON.parse(message.body)));
-                this.client.subscribe(`/topic/room/${roomCode}/events`, message => onHit(JSON.parse(message.body)));
-                this.client.subscribe(`/topic/room/${roomCode}/ammo`, message => onAmmo(JSON.parse(message.body)));
-                this.client.subscribe(`/topic/room/${roomCode}/game-over`, message => onMatchOver(JSON.parse(message.body)));
-                this.client.subscribe(`/topic/room/${roomCode}/timer`, message => onTimer(JSON.parse(message.body)));
+                
+                const safeParse = (callback) => (message) => {
+                    try {
+                        callback(JSON.parse(message.body));
+                    } catch (e) {
+                        console.error("Failed to parse STOMP message:", e, message.body);
+                    }
+                };
+
+                this.client.subscribe(`/topic/room/${roomCode}`, safeParse(onState));
+                this.client.subscribe(`/topic/rooms/${roomCode}/kills`, safeParse(onKill));
+                this.client.subscribe(`/topic/room/${roomCode}/events`, safeParse(onHit));
+                this.client.subscribe(`/topic/room/${roomCode}/ammo`, safeParse(onAmmo));
+                this.client.subscribe(`/topic/room/${roomCode}/game-over`, safeParse(onMatchOver));
+                this.client.subscribe(`/topic/room/${roomCode}/timer`, safeParse(onTimer));
+                this.client.subscribe(`/topic/rooms/${roomCode}/exits`, safeParse(onExit));
+                
                 this.client.publish({
                     destination: `/app/rooms/${roomCode}/join`,
                     body: JSON.stringify({ player })
                 });
             },
             onDisconnect: () => {
+                console.log("STOMP client disconnected normally.");
+                sessionStorage.removeItem('arena_room_id');
+                localStorage.removeItem('arena_room_id');
                 onStatus("Disconnected");
                 onDisconnected?.();
             },
-            onStompError: frame => onStatus(`Broker error: ${frame.headers.message || "unknown"}`)
+            onStompError: frame => {
+                console.error("Broker reported error:", frame.headers.message);
+                console.error("Additional details:", frame.body);
+                onStatus(`Broker error: ${frame.headers.message || "unknown"}`);
+            },
+            onWebSocketClose: (evt) => {
+                sessionStorage.removeItem('arena_room_id');
+                localStorage.removeItem('arena_room_id');
+                console.error(`WebSocket closed with code: ${evt.code}, reason: ${evt.reason}, clean: ${evt.wasClean}`);
+            }
         });
-        this.client.onWebSocketError = () => onStatus("WebSocket connection failed");
+        this.client.onWebSocketError = (evt) => {
+            console.error("WebSocket error observed:", evt);
+            onStatus("WebSocket connection failed");
+        };
         onStatus("Connecting...");
         this.client.activate();
     }

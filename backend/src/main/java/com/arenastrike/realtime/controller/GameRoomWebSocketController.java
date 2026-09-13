@@ -22,7 +22,8 @@ public class GameRoomWebSocketController {
             @DestinationVariable String roomCode,
             JoinRoomCommand command,
             SimpMessageHeaderAccessor headers) {
-        gameStateService.joinRoom(roomCode, command.player(), headers.getSessionId());
+        RoomGameState snapshot = gameStateService.joinRoom(roomCode, command.player(), headers.getSessionId());
+        messagingTemplate.convertAndSend("/topic/room/" + roomCode, snapshot);
     }
 
     @MessageMapping("/rooms/{roomCode}/input")
