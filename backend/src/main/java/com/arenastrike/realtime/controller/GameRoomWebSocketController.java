@@ -17,20 +17,47 @@ public class GameRoomWebSocketController {
         this.messagingTemplate = messagingTemplate;
     }
 
+    @MessageMapping("/lobby/{roomCode}/start")
+    public void startMatch(
+            @DestinationVariable String roomCode,
+            SimpMessageHeaderAccessor headers) {
+        Long authenticatedPlayerId = (Long) headers.getSessionAttributes().get("playerId");
+        if (authenticatedPlayerId == null) return;
+        
+        gameStateService.startMatchIfHost(roomCode, authenticatedPlayerId);
+    }
+
     @MessageMapping("/rooms/{roomCode}/join")
     public void join(
             @DestinationVariable String roomCode,
             JoinRoomCommand command,
             SimpMessageHeaderAccessor headers) {
-        RoomGameState snapshot = gameStateService.joinRoom(roomCode, command.player(), headers.getSessionId());
+        Long authenticatedPlayerId = (Long) headers.getSessionAttributes().get("playerId");
+        if (authenticatedPlayerId == null) return;
+        
+        // Override client spoofable ID with authenticated ID
+        PlayerState securePlayer = new PlayerState(authenticatedPlayerId, command.player().displayName(), 
+                command.player().position(), command.player().rotation(), command.player().health(), 
+                command.player().currentWeapon(), command.player().state());
+        
+        RoomGameState snapshot = gameStateService.joinRoom(roomCode, securePlayer, headers.getSessionId());
         messagingTemplate.convertAndSend("/topic/room/" + roomCode, snapshot);
     }
 
     @MessageMapping("/rooms/{roomCode}/input")
     public void updateState(
             @DestinationVariable String roomCode,
-            PlayerMovementPacket command) {
-        gameStateService.enqueueInput(roomCode, command);
+            PlayerMovementPacket command,
+            SimpMessageHeaderAccessor headers) {
+        Long authenticatedPlayerId = (Long) headers.getSessionAttributes().get("playerId");
+        if (authenticatedPlayerId == null) return;
+
+        PlayerMovementPacket secureCommand = new PlayerMovementPacket(
+                authenticatedPlayerId, command.x(), command.y(), command.z(),
+                command.velocityX(), command.velocityY(), command.state(),
+                command.isJumping(), command.rotation(), command.currentWeapon());
+        
+        gameStateService.enqueueInput(roomCode, secureCommand);
     }
 
     @MessageMapping("/rooms/{roomCode}/shoot")
@@ -38,14 +65,18 @@ public class GameRoomWebSocketController {
             @DestinationVariable String roomCode,
             ShootCommand command,
             SimpMessageHeaderAccessor headers) {
+        Long authenticatedPlayerId = (Long) headers.getSessionAttributes().get("playerId");
+        if (authenticatedPlayerId == null) return;
+
+        // ShootCommand does not contain playerId, the server looks it up by sessionId inside gameStateService!
+        // But to be completely secure, we should enforce the authenticatedPlayerId if the service required it.
         VerifiedShot result = gameStateService.shoot(roomCode, headers.getSessionId(), command);
+        if (result == null) return;
+        
         messagingTemplate.convertAndSend("/topic/room/" + roomCode + "/events", result);
         messagingTemplate.convertAndSend("/topic/room/" + roomCode + "/ammo",
                 new AmmoStateEvent("AMMO_STATE", result.attackerId(), result.weaponId(),
                         result.currentAmmo(), result.reloading()));
-        if (result.hit() != null) {
-            messagingTemplate.convertAndSend("/topic/room/" + roomCode + "/hit", result.hit());
-        }
     }
 
     @MessageMapping("/rooms/{roomCode}/reload")
@@ -53,6 +84,9 @@ public class GameRoomWebSocketController {
             @DestinationVariable String roomCode,
             ReloadCommand command,
             SimpMessageHeaderAccessor headers) {
+        Long authenticatedPlayerId = (Long) headers.getSessionAttributes().get("playerId");
+        if (authenticatedPlayerId == null) return;
+
         AmmoStateEvent event = gameStateService.reload(roomCode, headers.getSessionId(), command);
         messagingTemplate.convertAndSend("/topic/room/" + roomCode + "/ammo", event);
     }
@@ -60,9 +94,11 @@ public class GameRoomWebSocketController {
     @MessageMapping("/rooms/{roomCode}/leave")
     public void leave(
             @DestinationVariable String roomCode,
-            @Payload Long playerId,
             SimpMessageHeaderAccessor headers) {
-        gameStateService.leaveRoom(roomCode, playerId).ifPresent(event ->
+        Long authenticatedPlayerId = (Long) headers.getSessionAttributes().get("playerId");
+        if (authenticatedPlayerId == null) return;
+
+        gameStateService.leaveRoom(roomCode, authenticatedPlayerId).ifPresent(event ->
                 messagingTemplate.convertAndSend("/topic/rooms/" + roomCode + "/exits", event));
     }
 }

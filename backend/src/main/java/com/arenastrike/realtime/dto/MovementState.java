@@ -4,7 +4,8 @@ public enum MovementState {
     STANDING(1.0, -1.0),
     CROUCHING(1.1 / 1.8, -0.6),
     PRONE(0.45 / 1.8, -0.3),
-    JUMPING(1.0, -1.0);
+    JUMPING(1.0, -1.0),
+    DEAD(0.0, 0.0);
 
     private final double heightScale;
     private final double hitboxOffset;

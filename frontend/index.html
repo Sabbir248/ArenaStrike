@@ -8,56 +8,132 @@
 </head>
 <body>
     <section id="lobby-screen" aria-label="Lobby setup">
+        <div class="lobby-background"></div>
         <div class="lobby-card">
             <strong>ArenaStrike</strong>
             <h1>Enter the Battleground</h1>
             <form id="lobby-form">
-                <label for="display-name">Display name</label>
-                <input id="display-name" name="displayName" maxlength="32" required placeholder="Operator">
-                <label for="room-name">Room name</label>
-                <input id="room-name" name="roomName" maxlength="64" placeholder="My Awesome Lobby">
-                <label for="room-code">Room code (leave empty to create)</label>
-                <input id="room-code" name="roomCode" maxlength="6" placeholder="ABC123">
-                <label for="map">Map</label>
-                <select id="map" name="map">
-                    <option value="MAP_WAREHOUSE">Warehouse</option>
-                    <option value="MAP_BUNKER">Bunker</option>
-                </select>
-                <label for="player-limit">Player limit</label>
-                <input id="player-limit" name="playerLimit" type="number" min="2" max="10" value="2">
-                <label for="weapon">Starting weapon</label>
-                <select id="weapon" name="weapon">
-                    <option value="PISTOL">Pistol — Desert Eagle</option>
-                    <option value="ASSAULT_RIFLE" selected>Assault Rifle — AKM</option>
-                    <option value="SMG">SMG — UMP</option>
-                    <option value="SHOTGUN">Shotgun — S686</option>
-                    <option value="BOLT_ACTION_RIFLE">Bolt-Action Rifle — AWM</option>
-                </select>
-                <button type="submit">Create / Join Room</button>
-                <p id="lobby-error" role="alert"></p>
+                <div class="form-group">
+                    <label for="display-name">Display name</label>
+                    <input id="display-name" name="displayName" maxlength="32" required placeholder="Operator">
+                </div>
+                <div class="form-group">
+                    <label for="password">Password (Optional for Guests)</label>
+                    <input id="password" name="password" type="password" maxlength="64" placeholder="••••••••">
+                </div>
+                <div class="form-group">
+                    <label for="room-name">Room name</label>
+                    <input id="room-name" name="roomName" maxlength="64" placeholder="My Awesome Lobby">
+                </div>
+                <div class="form-group">
+                    <label for="room-code">Room code (leave empty to create)</label>
+                    <input id="room-code" name="roomCode" maxlength="6" placeholder="ABC123">
+                </div>
+                <div class="form-group">
+                    <label for="map">Map</label>
+                    <select id="map" name="map">
+                        <option value="MAP_WAREHOUSE">Warehouse</option>
+                        <option value="MAP_BUNKER">Bunker</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="player-limit">Player limit</label>
+                    <input id="player-limit" name="playerLimit" type="number" min="2" max="10" value="2">
+                </div>
+                <div class="form-group">
+                    <label for="weapon">Starting weapon</label>
+                    <select id="weapon" name="weapon">
+                        <option value="PISTOL">Pistol — Desert Eagle</option>
+                        <option value="ASSAULT_RIFLE" selected>Assault Rifle — AKM</option>
+                        <option value="SMG">SMG — UMP</option>
+                        <option value="SHOTGUN">Shotgun — S686</option>
+                        <option value="BOLT_ACTION_RIFLE">Bolt-Action Rifle — AWM</option>
+                    </select>
+                </div>
+                <button type="submit" id="btn-submit-lobby">
+                    <span class="btn-text">Create / Join Room</span>
+                    <span class="btn-spinner" hidden></span>
+                </button>
+                <div id="lobby-error" class="error-toast" hidden role="alert">
+                    <span class="error-icon">⚠️</span>
+                    <span class="error-message"></span>
+                    <button type="button" class="error-dismiss" aria-label="Close error">&times;</button>
+                </div>
             </form>
         </div>
     </section>
-    <main id="game-shell" aria-label="ArenaStrike game">
-        <section id="hud" aria-live="polite">
+
+    <section id="lobby-waiting-screen" aria-label="Lobby waiting room" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 100; color: white; font-family: 'Inter', sans-serif;">
+        <div style="background: rgba(20, 20, 20, 0.9); padding: 40px; border-radius: 8px; text-align: center; border: 1px solid #333; min-width: 300px;">
+            <h2 style="margin-top: 0; color: #ffab00; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;">Waiting for Players</h2>
+            <h3 style="margin: 10px 0;">Room Code: <span id="lobby-room-code"></span></h3>
+            <p style="font-size: 18px; margin: 20px 0;">Players in Room: <span id="lobby-player-count">1</span> / <span id="lobby-max-players">X</span></p>
+            <button id="start-match-btn" style="display: none; width: 100%; padding: 15px; font-size: 18px; font-weight: bold; text-transform: uppercase; background: #e05d44; color: white; border: none; border-radius: 4px; cursor: pointer; transition: background 0.2s;">Start Match</button>
+        </div>
+    </section>
+
+    <main id="game-shell" aria-label="ArenaStrike game" hidden>
+        <!-- TOP LEFT HUD -->
+        <section id="hud-top-left" class="cyber-hud-element" aria-live="polite">
+            <div class="hud-glitch-border"></div>
             <strong class="brand">ArenaStrike</strong>
             <div class="hud-stats">
                 <span id="connection-status">Loading 3D scene...</span>
                 <span id="room-status">Room: not connected</span>
-                <span id="match-timer">Waiting for players</span>
             </div>
+        </section>
+
+        <!-- TOP CENTER HUD (PUBG TDM STYLE) -->
+        <section id="hud-top-center" class="cyber-hud-element tdm-header">
+            <div class="team-score local-team">
+                <span id="local-score">0</span>
+            </div>
+            <div class="match-timer-container">
+                <span id="match-timer" class="timer-normal">00:00</span>
+            </div>
+            <div class="team-score opponent-team">
+                <span id="opponent-score">0</span>
+            </div>
+        </section>
+
+        <!-- BOTTOM CENTER HUD (HEALTH) -->
+        <section id="hud-bottom-center" class="cyber-hud-element">
             <div class="health-container">
-                <span id="health-label">HP</span>
-                <div id="health-bar" role="progressbar" aria-label="Player health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+                <div class="health-label-wrap">
+                    <span id="health-label">HP</span>
+                    <span id="health-value-text">100</span>
+                </div>
+                <div id="health-bar" class="segmented-health" role="progressbar" aria-label="Player health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
                     <span></span>
                 </div>
             </div>
         </section>
-        <section id="ammo-panel" aria-live="polite">
-            <div id="weapon-name">ASSAULT RIFLE</div>
-            <div class="ammo-count">
-                <span id="current-ammo">30</span><span class="divider">/</span><span id="reserve-ammo">90</span>
+
+        <!-- BOTTOM RIGHT HUD (AMMO) -->
+        <section id="ammo-panel" class="cyber-hud-element ammo-hud" aria-live="polite">
+            <div class="weapon-silhouette"></div>
+            <div class="weapon-info">
+                <div id="weapon-name">ASSAULT RIFLE</div>
+                <div class="ammo-count">
+                    <span id="current-ammo">30</span><span class="divider">/</span><span id="reserve-ammo">90</span>
+                </div>
             </div>
+        </section>
+
+        <!-- TOP RIGHT HUD (LIVE SCOREBOARD & KILLFEED) -->
+        <section id="hud-top-right">
+            <div id="live-scoreboard" class="cyber-hud-element">
+                <div class="scoreboard-header">LIVE RANKING</div>
+                <table id="mini-scoreboard-table">
+                    <thead>
+                        <tr><th>Player</th><th>Kills</th></tr>
+                    </thead>
+                    <tbody id="mini-scoreboard-body">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+            <aside id="kill-feed" aria-live="polite" aria-label="Live kill feed"></aside>
         </section>
         <div id="controls-hint" class="hidden">
             <span class="hint-text">W forward, S backward, A left, D right. Right-click ADS. Left-click fire. (Press H to toggle help)</span>
@@ -67,7 +143,6 @@
             <span></span><span></span><span></span><span></span>
         </div>
         <div id="hit-marker" hidden aria-live="polite"></div>
-        <aside id="kill-feed" aria-live="polite" aria-label="Live kill feed"></aside>
         <section id="match-over" hidden aria-live="assertive"></section>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
@@ -79,6 +154,6 @@
             }
         }
     </script>
-    <script type="module" src="./js/main.js"></script>
+    <script type="module" src="./js/main.js?v=2"></script>
 </body>
 </html>

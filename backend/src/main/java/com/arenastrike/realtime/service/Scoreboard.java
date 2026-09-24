@@ -2,6 +2,7 @@ package com.arenastrike.realtime.service;
 
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Scoreboard {
     private final ConcurrentHashMap<Long, PlayerScore> scores = new ConcurrentHashMap<>();
@@ -46,24 +47,24 @@ public class Scoreboard {
 
     public static class PlayerScore {
         private final Long playerId;
-        private int kills;
-        private int deaths;
-        private int damageDealt;
-        private int headshotKills;
+        private final AtomicInteger kills = new AtomicInteger(0);
+        private final AtomicInteger deaths = new AtomicInteger(0);
+        private final AtomicInteger damageDealt = new AtomicInteger(0);
+        private final AtomicInteger headshotKills = new AtomicInteger(0);
 
         public PlayerScore(Long playerId) {
             this.playerId = playerId;
         }
 
         public Long getPlayerId() { return playerId; }
-        public int getKills() { return kills; }
-        public int getDeaths() { return deaths; }
-        public int getDamageDealt() { return damageDealt; }
-        public int getHeadshotKills() { return headshotKills; }
+        public int getKills() { return kills.get(); }
+        public int getDeaths() { return deaths.get(); }
+        public int getDamageDealt() { return damageDealt.get(); }
+        public int getHeadshotKills() { return headshotKills.get(); }
 
-        public synchronized void incrementKills() { kills++; }
-        public synchronized void incrementDeaths() { deaths++; }
-        public synchronized void addDamage(int amount) { damageDealt += amount; }
-        public synchronized void incrementHeadshots() { headshotKills++; }
+        public void incrementKills() { kills.incrementAndGet(); }
+        public void incrementDeaths() { deaths.incrementAndGet(); }
+        public void addDamage(int amount) { damageDealt.addAndGet(amount); }
+        public void incrementHeadshots() { headshotKills.incrementAndGet(); }
     }
 }

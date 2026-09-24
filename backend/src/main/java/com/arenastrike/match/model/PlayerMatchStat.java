@@ -21,6 +21,9 @@ public class PlayerMatchStat {
     @Column(nullable = false)
     private int kills;
 
+    @Column(name = "headshot_kills", nullable = false)
+    private int headshotKills;
+
     @Column(nullable = false)
     private int score;
 
@@ -30,9 +33,10 @@ public class PlayerMatchStat {
     protected PlayerMatchStat() {
     }
 
-    public PlayerMatchStat(Player player, int kills, int score, String weaponUsed) {
+    public PlayerMatchStat(Player player, int kills, int headshotKills, int score, String weaponUsed) {
         this.player = player;
         this.kills = kills;
+        this.headshotKills = headshotKills;
         this.score = score;
         this.weaponUsed = weaponUsed;
     }
@@ -45,6 +49,7 @@ public class PlayerMatchStat {
     public MatchHistory getMatch() { return match; }
     public Player getPlayer() { return player; }
     public int getKills() { return kills; }
+    public int getHeadshotKills() { return headshotKills; }
     public int getScore() { return score; }
     public String getWeaponUsed() { return weaponUsed; }
 }

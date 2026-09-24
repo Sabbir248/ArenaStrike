@@ -25,16 +25,19 @@ public final class GameRoom implements AutoCloseable {
     private final ConcurrentHashMap<Long, Double> verticalVelocity = new ConcurrentHashMap<>();
     private final ScheduledExecutorService executor;
     private ScheduledFuture<?> task;
-    private final AtomicInteger countdown = new AtomicInteger(300);
-    private int tickCounter = 0;
+    private final AtomicInteger tickCounter = new AtomicInteger(0);
+    private int remainingSeconds = 300;
+    private final java.util.function.Consumer<MatchSummary> recordStatsCallback;
     private final java.util.function.Consumer<MatchSummary> finishCallback;
     private final AtomicBoolean isMatchTerminated = new AtomicBoolean(false);
 
     public GameRoom(String roomId, GameRoomState room, SimpMessagingTemplate messagingTemplate,
+                          java.util.function.Consumer<MatchSummary> recordStatsCallback,
                           java.util.function.Consumer<MatchSummary> finishCallback) {
         this.roomId = roomId;
         this.room = room;
         this.messagingTemplate = messagingTemplate;
+        this.recordStatsCallback = recordStatsCallback;
         this.finishCallback = finishCallback;
         this.executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "arena-room-" + roomId);
@@ -79,16 +82,18 @@ public final class GameRoom implements AutoCloseable {
             room.completeReloads(System.currentTimeMillis()).forEach(event ->
                     messagingTemplate.convertAndSend("/topic/room/" + roomId + "/ammo", event));
             room.activateIfStarting();
-            RoomGameState snapshot = room.snapshot(countdown.get());
+            
+            RoomGameState snapshot = room.snapshot(remainingSeconds);
             messagingTemplate.convertAndSend("/topic/room/" + roomId, snapshot);
             if (snapshot.roomState() == RoomState.ACTIVE) {
-                if (++tickCounter >= 20) {
-                    tickCounter = 0;
-                    int currentTimer = countdown.decrementAndGet();
-                    messagingTemplate.convertAndSend("/topic/room/" + roomId,
-                            new RoomTimerEvent(roomId, currentTimer));
+                if (tickCounter.incrementAndGet() >= 20) {
+                    tickCounter.set(0);
+                    remainingSeconds--;
+                    remainingSeconds = Math.max(0, remainingSeconds);
+                    messagingTemplate.convertAndSend("/topic/room/" + roomId + "/timer",
+                            new RoomTimerEvent(roomId, remainingSeconds));
                     
-                    if (currentTimer <= 0) {
+                    if (remainingSeconds <= 0) {
                         finishMatch(room.forceFinishMatch());
                     }
                 }
@@ -97,13 +102,27 @@ public final class GameRoom implements AutoCloseable {
             }
         } catch (MessagingException exception) {
             LOGGER.warn("Could not publish state for room {}", roomId, exception);
-        } catch (RuntimeException exception) {
+        } catch (Throwable exception) {
             LOGGER.error("Authoritative tick failed for room {}", roomId, exception);
+            exception.printStackTrace();
         }
     }
 
     public void finishForfeit() {
         finishMatch(room.finishIfForfeit());
+    }
+
+    public void scheduleRespawn(Long playerId) {
+        executor.schedule(() -> {
+            try {
+                PlayerState respawned = room.respawnPlayer(playerId);
+                if (respawned != null) {
+                    messagingTemplate.convertAndSend("/topic/room/" + roomId + "/respawn", respawned);
+                }
+            } catch (Exception e) {
+                LOGGER.error("Failed to respawn player {}", playerId, e);
+            }
+        }, 5, TimeUnit.SECONDS);
     }
 
     private void finishMatch(MatchSummary summary) {
@@ -116,6 +135,11 @@ public final class GameRoom implements AutoCloseable {
             messagingTemplate.convertAndSend("/topic/room/" + roomId + "/game-over", summary);
         } catch (MessagingException exception) {
             LOGGER.warn("Could not publish game-over for room {}", roomId, exception);
+        }
+        try {
+            recordStatsCallback.accept(summary);
+        } catch (Exception e) {
+            LOGGER.error("Failed to record stats", e);
         }
         executor.schedule(() -> {
             try {

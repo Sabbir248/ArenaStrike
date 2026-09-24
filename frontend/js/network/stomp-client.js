@@ -6,33 +6,58 @@ export class ArenaStrikeSocket {
         this.client = null;
     }
 
-    connect(roomCode, player, onState, onStatus, onKill, onMatchOver, onExit, onHit, onTimer, onAmmo, onDisconnected) {
+    connect(roomCode, player, onState, onStatus, onKill, onMatchOver, onExit, onHit, onTimer, onAmmo, onRespawn, onDisconnected, onLobbySync, onMatchStarted) {
         if (!window.StompJs || !window.SockJS) {
             throw new Error("STOMP and SockJS scripts are not loaded");
         }
+        
+        const token = sessionStorage.getItem("arena_jwt");
+        const urlWithToken = token ? `${this.endpoint}?token=${token}` : this.endpoint;
+
         this.client = new window.StompJs.Client({
-            webSocketFactory: () => new window.SockJS(this.endpoint),
-            reconnectDelay: 3000,
-            heartbeatIncoming: 10000,
-            heartbeatOutgoing: 10000,
+            webSocketFactory: () => new window.SockJS(urlWithToken),
+            reconnectDelay: (count) => Math.min(3000 * Math.pow(2, count), 30000),
+            heartbeatIncoming: 0, // Disabled to prevent premature client-side disconnection
+            heartbeatOutgoing: 0,
             onConnect: () => {
                 onStatus("Connected");
                 
                 const safeParse = (callback) => (message) => {
-                    try {
-                        callback(JSON.parse(message.body));
-                    } catch (e) {
-                        console.error("Failed to parse STOMP message:", e, message.body);
+                    if (callback) {
+                        try {
+                            callback(JSON.parse(message.body));
+                        } catch (e) {
+                            console.error("Failed to parse STOMP message:", e, message.body);
+                        }
                     }
                 };
 
                 this.client.subscribe(`/topic/room/${roomCode}`, safeParse(onState));
                 this.client.subscribe(`/topic/rooms/${roomCode}/kills`, safeParse(onKill));
-                this.client.subscribe(`/topic/room/${roomCode}/events`, safeParse(onHit));
+                this.client.subscribe(`/topic/room/${roomCode}/events`, safeParse((data) => {
+                    if (data.event === "MATCH_STARTED" && onMatchStarted) {
+                        onMatchStarted();
+                    } else if (onHit) {
+                        onHit(data);
+                    }
+                }));
+                this.client.subscribe(`/topic/room/${roomCode}/start`, safeParse((data) => {
+                    if (data.event === "MATCH_START" && onMatchStarted) {
+                        onMatchStarted();
+                    }
+                }));
                 this.client.subscribe(`/topic/room/${roomCode}/ammo`, safeParse(onAmmo));
                 this.client.subscribe(`/topic/room/${roomCode}/game-over`, safeParse(onMatchOver));
                 this.client.subscribe(`/topic/room/${roomCode}/timer`, safeParse(onTimer));
                 this.client.subscribe(`/topic/rooms/${roomCode}/exits`, safeParse(onExit));
+                this.client.subscribe(`/topic/room/${roomCode}/respawn`, safeParse(onRespawn));
+                
+                if (onLobbySync) {
+                    this.client.subscribe(`/topic/lobby/${roomCode}`, (message) => {
+                        console.log("LOBBY UPDATE RECEIVED:", message.body);
+                        safeParse(onLobbySync)(message);
+                    });
+                }
                 
                 this.client.publish({
                     destination: `/app/rooms/${roomCode}/join`,
@@ -102,5 +127,13 @@ export class ArenaStrikeSocket {
         }
         this.client = null;
         return disconnectingClient?.deactivate();
+    }
+    
+    startMatch(roomCode) {
+        if (this.client?.connected) {
+            this.client.publish({
+                destination: `/app/lobby/${roomCode}/start`
+            });
+        }
     }
 }

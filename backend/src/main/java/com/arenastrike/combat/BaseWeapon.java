@@ -76,4 +76,9 @@ public abstract class BaseWeapon implements Weapon {
     public double pelletSpreadRadians() {
         return pelletSpreadRadians;
     }
+
+    @Override
+    public double maxSpreadRadians() {
+        return 0.08;
+    }
 }

@@ -1,6 +1,6 @@
 import { ArenaStrikeRenderer } from "./game/renderer.js";
 import { ArenaStrikeSocket } from "./network/stomp-client.js";
-import { API_BASE_URL } from "./config.js";
+import { API_BASE_URL } from "./config.js?v=2";
 import { ArenaStrikeSoundManager } from "./audio/sound-manager.js";
 
 const canvas = document.querySelector("#game-canvas");
@@ -20,11 +20,15 @@ const sounds = new ArenaStrikeSoundManager();
 const keys = new Set();
 const query = new URLSearchParams(window.location.search);
 let roomCode = query.get("room")?.toUpperCase() || "";
-let playerId = Number(query.get("playerId")) || Math.floor(Math.random() * 900000) + 100000;
+// playerId is always assigned from the server's DB-generated value after
+// createLobby or joinLobby succeeds. It must never be a client-generated
+// random number because StatsService looks up real database rows by this ID.
+let playerId = null;
 let displayName = query.get("name") || "";
 let weapon = query.get("weapon") || "ASSAULT_RIFLE";
 let selectedMap = query.get("map") || "MAP_1";
 const movement = { forward: 0, strafe: 0 };
+const playerKills = new Map();
 let yaw = 0;
 let pitch = 0;
 let lastTime = performance.now();
@@ -39,6 +43,7 @@ let gameRunning = false;
 let animationFrameId = null;
 let teardownComplete = false;
 let unloadHandler = null;
+let lastProcessedServerTick = -1;
 const MAGAZINE_SIZES = {
     PISTOL: 12,
     ASSAULT_RIFLE: 30,
@@ -48,6 +53,7 @@ const MAGAZINE_SIZES = {
 };
 let currentAmmo = MAGAZINE_SIZES[weapon] || 30;
 let playerState = "IDLE";
+let isReloading = false;         // kept in sync by the AMMO_STATE server event
 let reserveAmmo = (MAGAZINE_SIZES[weapon] || 30) * 3;
 
 function updateAmmoDisplay() {
@@ -59,12 +65,55 @@ updateAmmoDisplay();
 
 function updateTimer(remainingSeconds) {
     if (remainingSeconds <= 0) {
-        matchTimerElement.textContent = `Time: 00:00`;
+        matchTimerElement.textContent = `00:00`;
+        matchTimerElement.className = "timer-danger";
         return;
     }
     const minutes = String(Math.floor(remainingSeconds / 60)).padStart(2, "0");
     const seconds = String(remainingSeconds % 60).padStart(2, "0");
-    matchTimerElement.textContent = `Time: ${minutes}:${seconds}`;
+    matchTimerElement.textContent = `${minutes}:${seconds}`;
+    
+    if (remainingSeconds < 60) {
+        matchTimerElement.className = "timer-danger";
+    } else {
+        matchTimerElement.className = "timer-normal";
+    }
+}
+
+function updateLiveScoreboard(players) {
+    const scoreboardBody = document.querySelector("#mini-scoreboard-body");
+    
+    const rankedPlayers = players.map(p => {
+        return {
+            name: p.displayName,
+            playerId: p.playerId,
+            kills: playerKills.get(p.displayName) || 0
+        };
+    });
+    
+    rankedPlayers.sort((a, b) => b.kills - a.kills);
+    
+    const localPlayer = rankedPlayers.find(p => String(p.playerId) === String(playerId));
+    if (localPlayer) {
+        const localScoreEl = document.querySelector("#local-score");
+        if (localScoreEl) localScoreEl.textContent = localPlayer.kills;
+    }
+    
+    const opponents = rankedPlayers.filter(p => String(p.playerId) !== String(playerId));
+    if (opponents.length > 0) {
+        const oppScoreEl = document.querySelector("#opponent-score");
+        if (oppScoreEl) oppScoreEl.textContent = opponents[0].kills;
+    }
+    
+    if (scoreboardBody) {
+        const top3 = rankedPlayers.slice(0, 3);
+        scoreboardBody.innerHTML = top3.map(p => `
+            <tr>
+                <td>${p.name}</td>
+                <td>${p.kills}</td>
+            </tr>
+        `).join("");
+    }
 }
 
 function stopClientLoops() {
@@ -74,6 +123,7 @@ function stopClientLoops() {
     movement.strafe = 0;
     playerVelocityX = 0;
     playerVelocityZ = 0;
+    console.trace("Who called WebSocket close?");
     verticalVelocity = 0;
     onGround = true;
     if (animationFrameId !== null) {
@@ -322,10 +372,25 @@ function formatKill(event) {
 async function startGame() {
     gameRunning = true;
     teardownComplete = false;
-    document.querySelector("#lobby-screen").hidden = true;
+    const lobbyScreen = document.querySelector("#lobby-screen");
+    const lobbyWaitingScreen = document.querySelector("#lobby-waiting-screen");
+    const gameShell = document.querySelector("#game-shell");
+    
+    if (lobbyScreen) lobbyScreen.hidden = true;
+    if (lobbyWaitingScreen) lobbyWaitingScreen.style.display = "flex";
+    if (gameShell) gameShell.hidden = true;
+
+    const startMatchBtn = document.getElementById("start-match-btn");
+    if (startMatchBtn) {
+        startMatchBtn.onclick = () => {
+            socket.startMatch(roomCode);
+        };
+    }
+
     await renderer.loadMap(selectedMap);
+
+
     await renderer.loadPlayerAssets();
-    renderer.spawnLocalPlayer(weapon);
     statusElement.textContent = "Arena ready";
     roomStatusElement.textContent = `Room: ${roomCode}`;
     socket.connect(
@@ -340,16 +405,21 @@ async function startGame() {
             state: stance
         },
         (state) => {
-            if (state.type === "TIMER_SYNC") {
-                updateTimer(state.remainingSeconds);
-                return;
-            }
-            if (state.serverTick < lastProcessedServerTick) return;
+            if (!state || typeof state.serverTick !== 'number') return;
+            if (state.serverTick <= lastProcessedServerTick) return;
             lastProcessedServerTick = state.serverTick;
-            renderer.updateRemotePlayers(state.players, playerId);
-            const local = state.players.find((player) => player.playerId === playerId);
-            if (local) {
-                updateHealth(local.health);
+            
+            try {
+                if (Array.isArray(state.players)) {
+                    renderer.updateRemotePlayers(state.players, playerId, state.serverTick);
+                    const local = state.players.find((player) => player.playerId === playerId);
+                    if (local) {
+                        updateHealth(local.health);
+                    }
+                    updateLiveScoreboard(state.players);
+                }
+            } catch (error) {
+                console.error("Failed to parse remote players:", error, state.players);
             }
             if (state.roomState !== "ACTIVE") {
                 matchTimerElement.textContent = state.roomState === "FINISHED" ? "Match over" : "Waiting for players";
@@ -365,6 +435,10 @@ async function startGame() {
             entry.textContent = formatKill(event);
             killFeedElement.prepend(entry);
             window.setTimeout(() => entry.remove(), 8000);
+            
+            if (event.killerName && event.killerName !== event.victimName) {
+                playerKills.set(event.killerName, (playerKills.get(event.killerName) || 0) + 1);
+            }
         },
         (event) => {
             handleMatchOver(event);
@@ -388,41 +462,87 @@ async function startGame() {
             }
         },
         (event) => {
+            if (event.remainingSeconds !== undefined) {
+                updateTimer(event.remainingSeconds);
+            }
+        },
+        (event) => {
             currentAmmo = event.currentAmmo;
             isReloading = event.reloading;
             updateAmmoDisplay();
         },
-        handleUnexpectedDisconnect
+        (respawnEvent) => {
+            if (String(respawnEvent.playerId) === String(playerId)) {
+                renderer.camera.position.set(respawnEvent.position.x, respawnEvent.position.y, respawnEvent.position.z);
+                updateHealth(100);
+            }
+        },
+        handleUnexpectedDisconnect,
+        (lobbyState) => {
+            document.getElementById("lobby-player-count").innerText = lobbyState.currentPlayers;
+            document.getElementById("lobby-max-players").innerText = lobbyState.maxPlayers;
+        },
+        () => {
+            const waitingScreen = document.querySelector("#lobby-waiting-screen");
+            const gameShell = document.querySelector("#game-shell");
+            if (waitingScreen) waitingScreen.style.display = "none";
+            if (gameShell) gameShell.hidden = false;
+            renderer.spawnLocalPlayer(weapon);
+            animationFrameId = requestAnimationFrame(renderFrame);
+            
+            // Request Pointer Lock for the FPS camera
+            const gameCanvas = document.querySelector("#game-canvas");
+            if (gameCanvas) {
+                try {
+                    gameCanvas.requestPointerLock();
+                } catch (e) {
+                    console.warn("Pointer lock requires a user gesture", e);
+                }
+            }
+        }
     );
-    if (unloadHandler) {
-        window.removeEventListener("beforeunload", unloadHandler);
+    /*if (unloadHandler) {
+        document.removeEventListener("visibilitychange", unloadHandler);
     }
-    unloadHandler = handleBeforeUnload;
-    window.addEventListener("beforeunload", unloadHandler, { once: true });
-    animationFrameId = requestAnimationFrame(renderFrame);
+    unloadHandler = () => {
+        if (document.visibilityState === 'hidden') {
+            handleBeforeUnload();
+        }
+    };
+    document.addEventListener("visibilitychange", unloadHandler);*/
 }
 
 function updateHealth(health) {
     const value = Math.max(0, Math.min(100, Number(health) || 0));
-    // Remove "Health: " text and keep it sleek
+    const valText = document.querySelector("#health-value-text");
+    if (valText) valText.textContent = String(value);
+    
     healthBarElement.setAttribute("aria-valuenow", String(value));
     healthBarElement.firstElementChild.style.width = `${value}%`;
-    healthBarElement.firstElementChild.style.backgroundColor =
-        value <= 25 ? "#e05d44" : value <= 50 ? "#e8b04a" : "#55c878";
+    
+    if (value <= 30) {
+        healthBarElement.classList.add("health-critical");
+    } else {
+        healthBarElement.classList.remove("health-critical");
+    }
 }
 
 function renderFrame(now) {
     if (!gameRunning) return;
-    const deltaSeconds = Math.min((now - lastTime) / 1000, 0.1);
-    lastTime = now;
-    updateMovement(deltaSeconds);
-    renderer.interpolateRemotePlayers(deltaSeconds);
-    sounds.updateListener(renderer.camera.position, { x: pitch, y: yaw, z: 0 });
-    if (now - lastNetworkUpdate >= 50) {
-        publishLocalState();
-        lastNetworkUpdate = now;
+    try {
+        const deltaSeconds = Math.min((now - lastTime) / 1000, 0.1);
+        lastTime = now;
+        updateMovement(deltaSeconds);
+        renderer.interpolateRemotePlayers(now, deltaSeconds);
+        sounds.updateListener(renderer.camera.position, { x: pitch, y: yaw, z: 0 });
+        if (now - lastNetworkUpdate >= 50) {
+            publishLocalState();
+            lastNetworkUpdate = now;
+        }
+        renderer.render(deltaSeconds);
+    } catch (err) {
+        console.error("[THREE.js Error] renderFrame crashed:", err);
     }
-    renderer.render(deltaSeconds);
     animationFrameId = requestAnimationFrame(renderFrame);
 }
 
@@ -447,6 +567,8 @@ function handleMatchOver(event) {
             <td>${r.kills}</td>
             <td>${r.deaths}</td>
             <td>${kd}</td>
+            <td>${r.headshotKills || 0}</td>
+            <td>${r.damageDealt || 0}</td>
         </tr>`;
     });
 
@@ -455,7 +577,7 @@ function handleMatchOver(event) {
             <h1 class="match-banner ${isVictory ? 'victory' : 'defeat'}">${bannerText}</h1>
             <table class="leaderboard-table">
                 <thead>
-                    <tr><th>Rank</th><th>Operator</th><th>Kills</th><th>Deaths</th><th>K/D</th></tr>
+                    <tr><th>Rank</th><th>Operator</th><th>Kills</th><th>Deaths</th><th>K/D</th><th>Headshots</th><th>DMG Dealt</th></tr>
                 </thead>
                 <tbody>${rows}</tbody>
             </table>
@@ -475,6 +597,8 @@ function navigateToLobby(requeue) {
     matchOverElement.hidden = true;
     matchOverElement.innerHTML = "";
     document.querySelector("#lobby-screen").hidden = false;
+    const gameShell = document.querySelector("#game-shell");
+    if (gameShell) gameShell.hidden = true;
     killFeedElement.replaceChildren();
     if (requeue) {
         document.querySelector("#lobby-form").querySelector("button[type='submit']").click();
@@ -492,6 +616,8 @@ function handleUnexpectedDisconnect() {
     matchTimerElement.textContent = "Disconnected";
     statusElement.textContent = "Connection lost. Return to the lobby.";
     document.querySelector("#lobby-screen").hidden = false;
+    const gameShell = document.querySelector("#game-shell");
+    if (gameShell) gameShell.hidden = true;
     document.querySelector("#lobby-error").textContent =
         "Disconnected from server. Please join or create a new room.";
     window.history.replaceState({}, "", "/");
@@ -503,18 +629,60 @@ async function submitLobby(event) {
     const requestedRoom = String(form.get("roomCode") || "").trim().toUpperCase();
     displayName = String(form.get("displayName")).trim();
     weapon = String(form.get("weapon"));
+    
     const lobbyError = document.querySelector("#lobby-error");
-    lobbyError.textContent = "";
+    const errorMessage = lobbyError.querySelector(".error-message");
+    const submitBtn = document.querySelector("#btn-submit-lobby");
+    const btnText = submitBtn.querySelector(".btn-text");
+    const btnSpinner = submitBtn.querySelector(".btn-spinner");
+    
+    // Reset UI state
+    lobbyError.hidden = true;
+    errorMessage.textContent = "";
+    submitBtn.disabled = true;
+    btnText.textContent = "Connecting...";
+    btnSpinner.hidden = false;
+
+    // Dismiss error handler
+    const dismissBtn = lobbyError.querySelector(".error-dismiss");
+    if (dismissBtn) {
+        dismissBtn.onclick = () => lobbyError.hidden = true;
+    }
+
     try {
+        const password = String(form.get("password") || "");
+        let jwtToken = null;
+        
+        const authRes = await fetch(`${API_BASE_URL}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: displayName, password: password })
+        });
+        
+        if (authRes.ok) {
+            const authData = await authRes.json();
+            jwtToken = authData.token;
+            displayName = authData.username; // update in case of guest UUID fallback
+            sessionStorage.setItem("arena_jwt", jwtToken);
+        } else {
+            throw new Error("Invalid password or authentication failed");
+        }
+
         const response = requestedRoom
             ? await fetch(`${API_BASE_URL}/api/lobby/${requestedRoom}/join`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    ...(jwtToken ? { "Authorization": `Bearer ${jwtToken}` } : {})
+                },
                 body: JSON.stringify({ displayName })
             })
             : await fetch(`${API_BASE_URL}/api/lobby/create`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    ...(jwtToken ? { "Authorization": `Bearer ${jwtToken}` } : {})
+                },
                 body: JSON.stringify({
                     roomName: String(form.get("roomName")) || "Arena Match",
                     displayName,
@@ -522,21 +690,65 @@ async function submitLobby(event) {
                     playerLimit: Number(form.get("playerLimit"))
                 })
             });
+            
         if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            throw new Error(error.message || "Could not create or join the room");
+            let errorMsg = `Server error: ${response.status} ${response.statusText}`;
+            try {
+                const errorPayload = await response.json();
+                if (errorPayload && errorPayload.message) {
+                    errorMsg = errorPayload.message;
+                } else if (errorPayload && errorPayload.error) {
+                    errorMsg = errorPayload.error;
+                }
+            } catch (parseError) {
+                // If it's not JSON, it might be an HTML error page or empty
+                const textPayload = await response.text().catch(() => "");
+                if (textPayload) errorMsg = textPayload.substring(0, 100);
+            }
+            throw new Error(errorMsg);
         }
+        
         const lobby = await response.json();
+        
+        if (!lobby.myPlayerId) {
+            throw new Error("Server did not return a player ID. Cannot start game.");
+        }
+        
+        playerId = lobby.myPlayerId;
         roomCode = lobby.roomCode;
         selectedMap = lobby.map;
+        
+        document.getElementById("lobby-room-code").textContent = roomCode;
+        document.getElementById("lobby-player-count").innerText = lobby.currentPlayers;
+        document.getElementById("lobby-max-players").innerText = lobby.maxPlayers;
+        
+        if (String(lobby.hostId) === String(playerId)) {
+            document.getElementById("start-match-btn").style.display = 'block';
+        } else {
+            document.getElementById("start-match-btn").style.display = 'none';
+        }
+        
         window.history.replaceState(
             {},
             "",
             `/?room=${roomCode}&name=${encodeURIComponent(displayName)}&weapon=${weapon}&map=${selectedMap}`
         );
+        
         await startGame();
     } catch (error) {
-        lobbyError.textContent = error.message;
+        console.error("Lobby API Error:", error);
+        
+        // Handle "Failed to fetch" which is a TypeError when CORS fails or server is offline
+        if (error instanceof TypeError && error.message === "Failed to fetch") {
+            errorMessage.textContent = "Network error: Failed to reach the server. Is the backend running on " + API_BASE_URL + "?";
+        } else {
+            errorMessage.textContent = error.message;
+        }
+        lobbyError.hidden = false;
+    } finally {
+        submitBtn.disabled = false;
+        btnText.textContent = "Create / Join Room";
+        btnSpinner.hidden = true;
     }
 }
 

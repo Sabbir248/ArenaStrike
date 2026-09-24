@@ -70,8 +70,8 @@ export class ArenaStrikeRenderer {
         window.addEventListener("resize", () => this.resize());
     }
 
-    async loadMap(map = "MAP_1") {
-        if (map === "MAP_2") {
+    async loadMap(map = "MAP_WAREHOUSE") {
+        if (map === "MAP_BUNKER") {
             this.addIndustrialOutpostMap();
         } else {
             this.addUrbanCourtyardMap();
@@ -339,23 +339,40 @@ export class ArenaStrikeRenderer {
     }
 
     createPlayerModel(colorHex, weapon = "ASSAULT_RIFLE") {
-        const root = createTacticalSoldierModel(colorHex);
-
-        let rightHandSocket = null;
-        root.traverse((object) => {
-            if (object.name === "RightHandSocket") {
-                rightHandSocket = object;
+        try {
+            const root = createTacticalSoldierModel(colorHex);
+            
+            try {
+                const weaponMesh = this.createWeaponModel(weapon, false);
+                // Attach weapon to the RightHandSocket defined in soldier.js
+                const rightHandSocket = root.getObjectByName("RightHandSocket");
+                if (rightHandSocket) {
+                    rightHandSocket.add(weaponMesh);
+                } else {
+                    weaponMesh.position.set(0.3, 0.9, -0.5);
+                    root.add(weaponMesh);
+                }
+            } catch (wErr) {
+                console.error("[THREE.js Error] Failed to create weapon model:", wErr);
             }
-        });
-
-        const weaponMesh = this.createWeaponModel(weapon, false);
-        if (rightHandSocket) {
-            rightHandSocket.add(weaponMesh);
-        } else {
-            root.add(weaponMesh);
+            
+            // FIX: The model's pivot point might be off causing it to float mid-air.
+            // Dynamically calculate the bounding box and wrap in a container
+            // so the feet (min.y) are exactly aligned with the floor (y=0).
+            const container = new THREE.Group();
+            root.updateMatrixWorld(true);
+            const boundingBox = new THREE.Box3().setFromObject(root);
+            root.position.y = -boundingBox.min.y;
+            
+            container.add(root);
+            // Transfer userData references so animations still work on the nested root
+            container.userData = root.userData;
+            
+            return container;
+        } catch (err) {
+            console.error("[THREE.js Error] Failed to create player model:", err);
+            return new THREE.Group();
         }
-        
-        return root;
     }
 
     createWeaponModel(weapon, firstPerson) {
@@ -476,7 +493,7 @@ export class ArenaStrikeRenderer {
         });
     }
 
-    updateRemotePlayers(players, localPlayerId) {
+    updateRemotePlayers(players, localPlayerId, serverTick) {
         const activeIds = new Set(players.map((player) => player.playerId));
         this.remotePlayers.forEach((remote, playerId) => {
             if (!activeIds.has(playerId) || playerId === localPlayerId) {
@@ -508,7 +525,7 @@ export class ArenaStrikeRenderer {
                 remote = {
                     mesh: this.createPlayerModel(0xe05d44, player.currentWeapon),
                     snapshotBuffer: [],
-                    stance: player.stance,
+                    stance: player.state,
                     weapon: player.currentWeapon
                 };
                 this.scene.add(remote.mesh);
@@ -521,10 +538,11 @@ export class ArenaStrikeRenderer {
                 remote.weapon = player.currentWeapon;
             }
             remote.snapshotBuffer.push({
+                serverTick: serverTick,
                 timestamp: performance.now(),
                 position: { ...player.position },
                 rotation: player.rotation.y,
-                stance: player.stance
+                stance: player.state
             });
             if (remote.snapshotBuffer.length > 20) {
                 remote.snapshotBuffer.shift();
@@ -538,6 +556,10 @@ export class ArenaStrikeRenderer {
     raycastOpponent() {
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+        
+        // Force update world matrices for accurate hitbox detection
+        this.raycastTargets.forEach(target => target.mesh.updateMatrixWorld(true));
+        
         const intersections = raycaster.intersectObjects(
             this.raycastTargets.map((target) => target.mesh), true);
         if (!intersections.length) {
@@ -588,17 +610,34 @@ export class ArenaStrikeRenderer {
 
             const snap0 = buffer[0];
             const snap1 = buffer.length > 1 ? buffer[1] : buffer[0];
-            
+            const tickDelta = snap1.serverTick - snap0.serverTick;
             let speed = 0;
-            if (renderTime >= snap0.timestamp && renderTime <= snap1.timestamp && snap1.timestamp > snap0.timestamp) {
-                const alpha = (renderTime - snap0.timestamp) / (snap1.timestamp - snap0.timestamp);
+            
+            if (snap1 !== snap0 && renderTime >= snap0.timestamp && renderTime <= snap1.timestamp) {
+                const timeDiff = snap1.timestamp - snap0.timestamp;
+                const alpha = timeDiff > 0 ? (renderTime - snap0.timestamp) / timeDiff : 1;
                 const next = new THREE.Vector3().copy(snap0.position).lerp(snap1.position, alpha);
                 speed = remote.mesh.position.distanceTo(next) / deltaSeconds;
                 remote.mesh.position.copy(next);
-                remote.mesh.rotation.y = THREE.MathUtils.lerp(snap0.rotation, snap1.rotation, alpha);
+                
+                let r0 = snap0.rotation;
+                let r1 = snap1.rotation;
+                if (Math.abs(r1 - r0) > Math.PI) {
+                    if (r1 > r0) r0 += Math.PI * 2;
+                    else r1 += Math.PI * 2;
+                }
+                remote.mesh.rotation.y = THREE.MathUtils.lerp(r0, r1, alpha);
                 this.applyStance(remote.mesh, snap1.stance);
             } else if (renderTime > snap1.timestamp) {
                 const next = new THREE.Vector3().copy(snap1.position);
+                if (tickDelta > 0 && snap1 !== snap0) {
+                    const extraTime = renderTime - snap1.timestamp;
+                    if (extraTime < 150) {
+                        const timeDiff = Math.max(1, snap1.timestamp - snap0.timestamp);
+                        const velocity = new THREE.Vector3().subVectors(snap1.position, snap0.position).divideScalar(timeDiff);
+                        next.add(velocity.multiplyScalar(extraTime));
+                    }
+                }
                 speed = remote.mesh.position.distanceTo(next) / deltaSeconds;
                 remote.mesh.position.copy(next);
                 remote.mesh.rotation.y = snap1.rotation;
@@ -654,7 +693,7 @@ export class ArenaStrikeRenderer {
             JUMPING: 1.08
         }[stance] || 1;
         model.scale.set(1, scale, stance === "PRONE" ? 1.25 : 1);
-        model.position.y = stance === "PRONE" ? 0.05 : 0;
+        // Removed model.position.y overwrite to allow world-space interpolation
     }
 
     playReloadAnimation() {
@@ -672,88 +711,95 @@ export class ArenaStrikeRenderer {
         this.viewmodelCamera.quaternion.slerp(this.camera.quaternion, 15 * deltaSeconds);
 
         if (this.firstPersonWeapon) {
-            const horizontalVelocity = Math.hypot(
-                this.camera.position.x - this.lastCameraPos.x,
-                this.camera.position.z - this.lastCameraPos.z
-            );
-            this.lastCameraPos.copy(this.camera.position);
-            
-            this.bobPhase += horizontalVelocity * 12;
-            const bobX = Math.sin(this.bobPhase) * 0.015;
-            const bobY = Math.abs(Math.cos(this.bobPhase)) * 0.015;
+            try {
+                const horizontalVelocity = Math.hypot(
+                    this.camera.position.x - this.lastCameraPos.x,
+                    this.camera.position.z - this.lastCameraPos.z
+                );
+                this.lastCameraPos.copy(this.camera.position);
+                
+                this.bobPhase += horizontalVelocity * 12;
+                const bobX = Math.sin(this.bobPhase) * 0.015;
+                const bobY = Math.abs(Math.cos(this.bobPhase)) * 0.015;
 
-            const config = WEAPON_CONFIGS[this.currentWeaponType] || WEAPON_CONFIGS["ASSAULT_RIFLE"];
-            
-            let reloadRotX = 0;
-            let reloadPosY = 0;
-            let reloadPosZ = 0;
+                const config = WEAPON_CONFIGS[this.currentWeaponType] || WEAPON_CONFIGS["ASSAULT_RIFLE"];
+                
+                let reloadRotX = 0;
+                let reloadPosY = 0;
+                let reloadPosZ = 0;
 
-            if (this.isReloading) {
-                const t = (performance.now() - this.reloadStartTime) / 1000;
-                if (t >= 2.5) {
-                    this.isReloading = false;
-                } else {
-                    const magazine = this.firstPersonWeapon.getObjectByName("magazine");
-                    const bolt = this.firstPersonWeapon.getObjectByName("bolt");
-                    if (magazine && magazine.userData.baseY === undefined) magazine.userData.baseY = magazine.position.y;
-                    if (bolt && bolt.userData.baseZ === undefined) bolt.userData.baseZ = bolt.position.z;
-
-                    if (t < 0.4) {
-                        const alpha = t / 0.4;
-                        reloadRotX = THREE.MathUtils.lerp(0, Math.PI / 4, alpha);
-                        reloadPosY = THREE.MathUtils.lerp(0, -0.1, alpha);
-                        reloadPosZ = THREE.MathUtils.lerp(0, 0.1, alpha);
-                    } else if (t < 1.2) {
-                        reloadRotX = Math.PI / 4;
-                        reloadPosY = -0.1;
-                        reloadPosZ = 0.1;
-                        if (magazine) {
-                            const alpha = (t - 0.4) / 0.8;
-                            magazine.position.y = THREE.MathUtils.lerp(magazine.userData.baseY, magazine.userData.baseY - 0.2, alpha);
-                        }
-                    } else if (t < 1.8) {
-                        reloadRotX = Math.PI / 4;
-                        reloadPosY = -0.1;
-                        reloadPosZ = 0.1;
-                        if (magazine) {
-                            const alpha = (t - 1.2) / 0.6;
-                            magazine.position.y = THREE.MathUtils.lerp(magazine.userData.baseY - 0.2, magazine.userData.baseY, alpha);
-                        }
-                    } else if (t < 2.2) {
-                        reloadRotX = Math.PI / 4;
-                        reloadPosY = -0.1;
-                        reloadPosZ = 0.1;
-                        if (bolt) {
-                            const alpha = (t - 1.8) / 0.4;
-                            const pull = alpha < 0.5 ? (alpha / 0.5) : (1 - (alpha - 0.5) / 0.5);
-                            bolt.position.z = THREE.MathUtils.lerp(bolt.userData.baseZ, bolt.userData.baseZ + 0.05, pull);
-                        }
+                if (this.isReloading) {
+                    const t = (performance.now() - this.reloadStartTime) / 1000;
+                    if (t >= 2.5) {
+                        this.isReloading = false;
                     } else {
-                        const alpha = (t - 2.2) / 0.3;
-                        reloadRotX = THREE.MathUtils.lerp(Math.PI / 4, 0, alpha);
-                        reloadPosY = THREE.MathUtils.lerp(-0.1, 0, alpha);
-                        reloadPosZ = THREE.MathUtils.lerp(0.1, 0, alpha);
+                        const magazine = this.firstPersonWeapon.getObjectByName("magazine");
+                        const bolt = this.firstPersonWeapon.getObjectByName("bolt");
+                        if (magazine && magazine.userData.baseY === undefined) magazine.userData.baseY = magazine.position.y;
+                        if (bolt && bolt.userData.baseZ === undefined) bolt.userData.baseZ = bolt.position.z;
+
+                        if (t < 0.4) {
+                            const alpha = t / 0.4;
+                            reloadRotX = THREE.MathUtils.lerp(0, Math.PI / 4, alpha);
+                            reloadPosY = THREE.MathUtils.lerp(0, -0.1, alpha);
+                            reloadPosZ = THREE.MathUtils.lerp(0, 0.1, alpha);
+                        } else if (t < 1.2) {
+                            reloadRotX = Math.PI / 4;
+                            reloadPosY = -0.1;
+                            reloadPosZ = 0.1;
+                            if (magazine) {
+                                const alpha = (t - 0.4) / 0.8;
+                                magazine.position.y = THREE.MathUtils.lerp(magazine.userData.baseY, magazine.userData.baseY - 0.2, alpha);
+                            }
+                        } else if (t < 1.8) {
+                            reloadRotX = Math.PI / 4;
+                            reloadPosY = -0.1;
+                            reloadPosZ = 0.1;
+                            if (magazine) {
+                                const alpha = (t - 1.2) / 0.6;
+                                magazine.position.y = THREE.MathUtils.lerp(magazine.userData.baseY - 0.2, magazine.userData.baseY, alpha);
+                            }
+                        } else if (t < 2.2) {
+                            reloadRotX = Math.PI / 4;
+                            reloadPosY = -0.1;
+                            reloadPosZ = 0.1;
+                            if (bolt) {
+                                const alpha = (t - 1.8) / 0.4;
+                                const pull = alpha < 0.5 ? (alpha / 0.5) : (1 - (alpha - 0.5) / 0.5);
+                                bolt.position.z = THREE.MathUtils.lerp(bolt.userData.baseZ, bolt.userData.baseZ + 0.05, pull);
+                            }
+                        } else {
+                            const alpha = (t - 2.2) / 0.3;
+                            reloadRotX = THREE.MathUtils.lerp(Math.PI / 4, 0, alpha);
+                            reloadPosY = THREE.MathUtils.lerp(-0.1, 0, alpha);
+                            reloadPosZ = THREE.MathUtils.lerp(0.1, 0, alpha);
+                        }
                     }
                 }
-            }
 
-            const targetX = this.aiming ? config.adsPosition.x : config.position.x + bobX;
-            const targetY = this.aiming ? config.adsPosition.y : config.position.y + bobY + reloadPosY;
-            const targetZ = this.aiming ? config.adsPosition.z : config.position.z + reloadPosZ;
-            
-            this.firstPersonWeapon.position.x = THREE.MathUtils.lerp(
-                this.firstPersonWeapon.position.x, targetX, 0.2
-            );
-            this.firstPersonWeapon.position.y = THREE.MathUtils.lerp(
-                this.firstPersonWeapon.position.y, targetY, 0.2
-            );
-            this.firstPersonWeapon.position.z = THREE.MathUtils.lerp(
-                this.firstPersonWeapon.position.z, targetZ + this.weaponRecoil, 0.3
-            );
-            
-            this.weaponRecoil *= 0.72;
-            this.firstPersonWeapon.rotation.x = THREE.MathUtils.lerp(
-                this.firstPersonWeapon.rotation.x, (this.aiming ? -0.02 : 0) + reloadRotX, 0.2);
+                // Protect against NaN
+                if (!isNaN(bobX) && !isNaN(bobY)) {
+                    const targetX = this.aiming ? config.adsPosition.x : config.position.x + bobX;
+                    const targetY = this.aiming ? config.adsPosition.y : config.position.y + bobY + reloadPosY;
+                    const targetZ = this.aiming ? config.adsPosition.z : config.position.z + reloadPosZ;
+                    
+                    this.firstPersonWeapon.position.x = THREE.MathUtils.lerp(
+                        this.firstPersonWeapon.position.x, targetX, 0.2
+                    );
+                    this.firstPersonWeapon.position.y = THREE.MathUtils.lerp(
+                        this.firstPersonWeapon.position.y, targetY, 0.2
+                    );
+                    this.firstPersonWeapon.position.z = THREE.MathUtils.lerp(
+                        this.firstPersonWeapon.position.z, targetZ + (this.weaponRecoil || 0), 0.3
+                    );
+                }
+                
+                this.weaponRecoil *= 0.72;
+                this.firstPersonWeapon.rotation.x = THREE.MathUtils.lerp(
+                    this.firstPersonWeapon.rotation.x, (this.aiming ? -0.02 : 0) + reloadRotX, 0.2);
+            } catch (err) {
+                console.error("[THREE.js Error] Render loop viewmodel crash:", err);
+            }
         }
         
         this.renderer.clear();

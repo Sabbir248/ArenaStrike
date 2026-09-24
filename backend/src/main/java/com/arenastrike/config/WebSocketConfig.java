@@ -18,6 +18,12 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
+    private final JwtHandshakeInterceptor jwtHandshakeInterceptor;
+
+    public WebSocketConfig(JwtHandshakeInterceptor jwtHandshakeInterceptor) {
+        this.jwtHandshakeInterceptor = jwtHandshakeInterceptor;
+    }
+
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         ThreadPoolTaskScheduler te = new ThreadPoolTaskScheduler();
@@ -26,7 +32,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         te.initialize();
 
         registry.enableSimpleBroker("/topic", "/queue")
-                .setHeartbeatValue(new long[]{10000, 10000}) // 10s ping/pong
+                .setHeartbeatValue(new long[]{0, 0}) // Disabled to match client configuration
                 .setTaskScheduler(te);
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
@@ -43,6 +49,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns("http://localhost:*", "http://127.0.0.1:*")
+                .addInterceptors(jwtHandshakeInterceptor)
                 .withSockJS();
     }
 }

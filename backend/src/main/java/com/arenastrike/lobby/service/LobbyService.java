@@ -19,40 +19,45 @@ public class LobbyService {
 
     private final LobbyRepository lobbyRepository;
     private final PlayerService playerService;
+    private final com.arenastrike.player.repository.PlayerRepository playerRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public LobbyService(LobbyRepository lobbyRepository, PlayerService playerService, SimpMessagingTemplate messagingTemplate) {
+    public LobbyService(LobbyRepository lobbyRepository, PlayerService playerService, 
+                        com.arenastrike.player.repository.PlayerRepository playerRepository,
+                        SimpMessagingTemplate messagingTemplate) {
         this.lobbyRepository = lobbyRepository;
         this.playerService = playerService;
+        this.playerRepository = playerRepository;
         this.messagingTemplate = messagingTemplate;
     }
 
     @Transactional
-    public LobbyResponse createLobby(CreateLobbyRequest request) {
-        Player player = playerService.createGuest(request.displayName());
+    public LobbyResponse createLobby(CreateLobbyRequest request, Long playerId) {
+        Player player = playerRepository.findById(playerId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Player not found"));
         Lobby lobby = new Lobby(nextAvailableRoomCode(), request.roomName(), request.map(), request.playerLimit());
         lobby.addParticipant(new LobbyParticipant(player));
-        return LobbyResponse.from(lobbyRepository.save(lobby));
+        return LobbyResponse.from(lobbyRepository.save(lobby), player.getId());
     }
 
-    /**
-     * The pessimistic database lock serializes all joins for a room. The
-     * capacity check and participant insert therefore happen atomically.
-     */
     @Transactional
-    public LobbyResponse joinLobby(String rawRoomCode, JoinLobbyRequest request) {
+    public LobbyResponse joinLobby(String rawRoomCode, JoinLobbyRequest request, Long playerId) {
+        if (rawRoomCode == null || playerId == null) {
+            throw new IllegalArgumentException("Invalid join request parameters");
+        }
         String roomCode = normalizeRoomCode(rawRoomCode);
         Lobby lobby = lobbyRepository.findByRoomCodeForUpdate(roomCode)
                 .orElseThrow(() -> new LobbyNotFoundException(roomCode));
-        Player player = playerService.createGuest(request.displayName());
+        Player player = playerRepository.findById(playerId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Player not found"));
         if (lobby.containsUser(player.getId())) {
             throw new LobbyConflictException("Player is already in this lobby");
         }
         lobby.addParticipant(new LobbyParticipant(player));
         Lobby saved = lobbyRepository.save(lobby);
         broadcastLobbySync(saved);
-        return LobbyResponse.from(saved);
+        return LobbyResponse.from(saved, player.getId());
     }
 
     @Transactional(readOnly = true)
@@ -84,11 +89,14 @@ public class LobbyService {
         messagingTemplate.convertAndSend("/topic/lobby/" + lobby.getRoomCode() + "/launch", new LobbyLaunchCommand());
     }
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LobbyService.class);
+
     public void broadcastLobbySync(Lobby lobby) {
         var players = lobby.getParticipants().stream()
                 .map(p -> new LobbySyncEvent.PlayerStatus(p.getUser().getId(), p.getUser().getDisplayName(), p.isReady()))
                 .toList();
         LobbySyncEvent event = new LobbySyncEvent("LOBBY_SYNC", lobby.getRoomCode(), players.size(), lobby.getPlayerLimit(), players);
+        log.info("Broadcasting lobby update to /topic/lobby/{} : {}", lobby.getRoomCode(), event);
         messagingTemplate.convertAndSend("/topic/lobby/" + lobby.getRoomCode(), event);
     }
 

@@ -42,7 +42,7 @@ public class StatsService {
             updatedPlayers.add(player);
 
             PlayerMatchStat stat = new PlayerMatchStat(
-                    player, result.kills(), result.damageDealt(), result.weaponUsed());
+                    player, result.kills(), result.headshotKills(), result.damageDealt(), result.weaponUsed());
             match.addPlayerStat(stat);
         });
 

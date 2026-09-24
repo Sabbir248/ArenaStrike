@@ -14,13 +14,15 @@ public class PlayerService {
         this.playerRepository = playerRepository;
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = org.springframework.dao.DataIntegrityViolationException.class)
     public Player createGuest(String displayName) {
         String username = displayName.trim();
-        if (playerRepository.existsByUsername(username)) {
-            username = (username + "-" + UUID.randomUUID().toString().substring(0, 8))
+        try {
+            return playerRepository.saveAndFlush(new Player(username));
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            String fallback = (username + "-" + UUID.randomUUID().toString().substring(0, 8))
                     .substring(0, Math.min(32, username.length() + 9));
+            return playerRepository.saveAndFlush(new Player(fallback));
         }
-        return playerRepository.save(new Player(username));
     }
 }

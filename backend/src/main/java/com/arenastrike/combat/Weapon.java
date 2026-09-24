@@ -10,4 +10,5 @@ public interface Weapon {
     long reloadDurationMs();
     int pelletCount();
     double pelletSpreadRadians();
+    double maxSpreadRadians();
 }
