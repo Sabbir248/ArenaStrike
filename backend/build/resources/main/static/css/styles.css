@@ -82,6 +82,253 @@ body {
     color: #ffffff;
 }
 
+#lobby-form [hidden] {
+    display: none !important;
+}
+
+#login-panel h2 {
+    margin: 0 0 0.35rem;
+    color: #f3f6fa;
+    font-size: 1.1rem;
+    letter-spacing: 0.02em;
+}
+
+.login-subtitle {
+    margin: 0 0 1rem;
+    color: #94a3b8;
+    font-size: 0.9rem;
+}
+
+.login-buttons {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.lobby-card button.login-provider {
+    min-height: 3rem;
+    margin: 0;
+    padding: 0.65rem 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.07);
+    color: #f4f7fb;
+    text-transform: none;
+    letter-spacing: 0.01em;
+    font-size: 0.94rem;
+    font-weight: 650;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.lobby-card button.login-provider:hover {
+    border-color: rgba(255, 255, 255, 0.38);
+    background: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 0 18px rgba(87, 172, 220, 0.14);
+}
+
+.login-provider > span:first-child {
+    width: 1.25rem;
+    font-size: 1.15rem;
+    line-height: 1;
+}
+
+.google-mark {
+    font-weight: 800;
+    color: #4285f4;
+    text-shadow: 1px 0 #34a853, -1px 0 #ea4335, 0 1px #fbbc05;
+}
+
+.guest-entry {
+    margin-top: 0.9rem;
+}
+
+.guest-entry label,
+.welcome-kicker {
+    display: block;
+    margin-bottom: 0.4rem;
+    color: #94a3b8;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.guest-entry-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.guest-entry-row input {
+    min-width: 0;
+    flex: 1;
+}
+
+.lobby-card button#btn-guest-continue {
+    width: auto;
+    min-height: 2.75rem;
+    margin: 0;
+    padding: 0 0.85rem;
+    font-size: 0.78rem;
+}
+
+.welcome-panel {
+    position: relative;
+    margin-top: 0.9rem;
+    padding: 0.85rem 3rem 0.85rem 1rem;
+    border: 1px solid rgba(85, 200, 120, 0.3);
+    border-radius: 8px;
+    background: rgba(85, 200, 120, 0.08);
+}
+
+.welcome-kicker {
+    margin: 0;
+    color: #69d78b;
+    font-size: 0.66rem;
+}
+
+.welcome-panel p {
+    margin: 0.3rem 0 0;
+    color: #dbe5ec;
+}
+
+.welcome-panel strong {
+    color: #ffffff;
+    letter-spacing: 0;
+    text-transform: none;
+    font-size: inherit;
+    text-shadow: none;
+}
+
+.lobby-card button.settings-trigger {
+    position: absolute;
+    top: 0.45rem;
+    right: 0.5rem;
+    width: 2.25rem;
+    min-height: 2.25rem;
+    margin: 0;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #d9e3ed;
+    font-size: 1rem;
+    box-shadow: none;
+}
+
+.lobby-card button.settings-trigger:hover {
+    border-color: rgba(255, 202, 88, 0.55);
+    background: rgba(255, 202, 88, 0.12);
+    box-shadow: 0 0 12px rgba(255, 202, 88, 0.18);
+}
+
+.welcome-panel.nickname-saved {
+    animation: nicknameSavedGlow 1.2s ease-out;
+}
+
+@keyframes nicknameSavedGlow {
+    0%, 100% { box-shadow: none; }
+    35% { box-shadow: 0 0 24px rgba(85, 200, 120, 0.55); }
+}
+
+.settings-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgba(1, 5, 10, 0.72);
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
+}
+
+.settings-card {
+    position: relative;
+    width: min(100%, 25rem);
+    padding: 1.6rem;
+    border: 1px solid rgba(130, 158, 174, 0.3);
+    border-radius: 12px;
+    background: rgba(15, 22, 31, 0.96);
+    box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.58), inset 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.settings-card h2 {
+    margin: 0.15rem 0 0.45rem;
+    color: #f5f7fa;
+    font-size: 1.3rem;
+}
+
+.settings-card p {
+    margin: 0 0 1.1rem;
+    color: #9babb9;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.settings-card label {
+    display: block;
+    margin-bottom: 0.4rem;
+    color: #bcc9d4;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.settings-card input {
+    margin-bottom: 0.35rem;
+}
+
+.error-text {
+    display: block;
+    min-height: 1.25rem;
+    color: #ff8a80;
+    font-size: 0.8rem;
+}
+
+.lobby-card button.save-nickname {
+    margin-top: 0.5rem;
+}
+
+.settings-card button.settings-close {
+    position: absolute;
+    top: 0.65rem;
+    right: 0.75rem;
+    width: 2rem;
+    min-height: 2rem;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    color: #9eacb8;
+    font-size: 1.5rem;
+    box-shadow: none;
+}
+
+.settings-card button.settings-close:hover {
+    color: #ffffff;
+    box-shadow: none;
+}
+
+.lobby-card button.change-login {
+    width: auto;
+    min-height: 0;
+    margin: 0.3rem 0 0;
+    padding: 0;
+    background: none;
+    color: #9db2c1;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    box-shadow: none;
+}
+
+.lobby-card button.change-login:hover {
+    color: #ffffff;
+    text-decoration: underline;
+    box-shadow: none;
+}
+
 .form-group {
     display: flex;
     flex-direction: column;

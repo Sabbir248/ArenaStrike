@@ -1,13 +1,18 @@
 package com.arenastrike.lobby.model;
 
+import com.arenastrike.common.model.BaseEntity;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
 @Table(name = "lobbies", uniqueConstraints = @UniqueConstraint(name = "uk_lobby_room_code", columnNames = "room_code"))
-public class Lobby {
+@SQLDelete(sql = "UPDATE lobbies SET deleted_at = CURRENT_TIMESTAMP(6), updated_at = CURRENT_TIMESTAMP(6) WHERE id = ?")
+@SQLRestriction("deleted_at IS NULL")
+public class Lobby extends BaseEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -29,9 +34,6 @@ public class Lobby {
     @Column(nullable = false, length = 16)
     private LobbyStatus status = LobbyStatus.WAITING;
 
-    @Column(nullable = false, updatable = false)
-    private Instant createdAt;
-
     @OneToMany(mappedBy = "lobby", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("joinedAt ASC")
     private List<LobbyParticipant> participants = new ArrayList<>();
@@ -44,7 +46,6 @@ public class Lobby {
         this.roomName = roomName;
         this.map = map;
         this.playerLimit = playerLimit;
-        this.createdAt = Instant.now();
     }
 
     public void addParticipant(LobbyParticipant participant) {
@@ -68,7 +69,6 @@ public class Lobby {
     public GameMap getMap() { return map; }
     public int getPlayerLimit() { return playerLimit; }
     public LobbyStatus getStatus() { return status; }
-    public Instant getCreatedAt() { return createdAt; }
     public List<LobbyParticipant> getParticipants() { return participants; }
 
     public void resetForNextMatch() {

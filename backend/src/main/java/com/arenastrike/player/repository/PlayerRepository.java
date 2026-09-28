@@ -11,5 +11,8 @@ import java.util.Optional;
 public interface PlayerRepository extends JpaRepository<Player, Long> {
     boolean existsByUsername(String username);
     Optional<Player> findByUsername(String username);
+    boolean existsByNickname(String nickname);
+    boolean existsByNicknameIgnoreCaseAndIdNot(String nickname, Long id);
+    Optional<Player> findByOauthProviderAndOauthSubject(String oauthProvider, String oauthSubject);
     List<Player> findAllByOrderByWinsDescTotalKillsDesc();
 }

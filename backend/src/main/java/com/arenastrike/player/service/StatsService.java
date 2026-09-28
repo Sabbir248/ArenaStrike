@@ -71,7 +71,7 @@ public class StatsService {
     }
 
     private PlayerStatsResponse response(Player player) {
-        return new PlayerStatsResponse(player.getId(), player.getUsername(),
+        return new PlayerStatsResponse(player.getId(), player.getDisplayName(),
                 player.getMatchesPlayed(), player.getWins(), player.getTotalKills(),
                 player.getTotalDeaths(), player.getKdr(), 0); // Headshots can be omitted or added to Player if needed later
     }

@@ -2,6 +2,7 @@ package com.arenastrike.lobby.dto;
 
 import com.arenastrike.lobby.model.*;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 
 public record LobbyResponse(
@@ -11,7 +12,7 @@ public record LobbyResponse(
         int maxPlayers,
         int currentPlayers,
         LobbyStatus status,
-        Instant createdAt,
+        LocalDateTime createdAt,
         List<PlayerResponse> players,
         /**
          * The database-assigned ID of the player who just created or joined this lobby.

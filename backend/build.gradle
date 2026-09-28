@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '3.3.5'
     id 'io.spring.dependency-management' version '1.1.6'
+    id 'org.flywaydb.flyway' version '10.10.0'
 }
 
 group = 'com.arenastrike'
@@ -51,6 +52,12 @@ dependencies {
     implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+
+    // Verify Google Identity Services ID tokens using Google's rotating signing keys.
+    implementation 'com.google.api-client:google-api-client:2.9.1'
+    // Declare the token and JSON transport APIs used by OAuthIdentityVerifier directly.
+    implementation 'com.google.oauth-client:google-oauth-client:1.36.0'
+    implementation 'com.google.http-client:google-http-client-gson:2.0.0'
 
     // MySQL connector is loaded only when the application runs.
     runtimeOnly 'com.mysql:mysql-connector-j'

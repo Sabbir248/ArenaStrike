@@ -1,13 +1,17 @@
 package com.arenastrike.lobby.model;
 
+import com.arenastrike.common.model.BaseEntity;
 import com.arenastrike.player.model.Player;
 import jakarta.persistence.*;
 import java.time.Instant;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
-@Table(name = "lobby_participants",
-        uniqueConstraints = @UniqueConstraint(name = "uk_lobby_user", columnNames = {"lobby_id", "user_id"}))
-public class LobbyParticipant {
+@Table(name = "lobby_participants")
+@SQLDelete(sql = "UPDATE lobby_participants SET deleted_at = CURRENT_TIMESTAMP(6), updated_at = CURRENT_TIMESTAMP(6) WHERE id = ?")
+@SQLRestriction("deleted_at IS NULL")
+public class LobbyParticipant extends BaseEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

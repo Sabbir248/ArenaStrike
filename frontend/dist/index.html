@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ArenaStrike | Tactical Battleground</title>
     <link rel="stylesheet" href="./css/styles.css">
+    <script id="google-gsi-sdk" src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
     <section id="lobby-screen" aria-label="Lobby setup">
@@ -13,18 +14,35 @@
             <strong>ArenaStrike</strong>
             <h1>Enter the Battleground</h1>
             <form id="lobby-form">
-                <div class="form-group">
-                    <label for="display-name">Display name</label>
-                    <input id="display-name" name="displayName" maxlength="32" required placeholder="Operator">
-                </div>
-                <div class="form-group">
-                    <label for="password">Password (Optional for Guests)</label>
-                    <input id="password" name="password" type="password" maxlength="64" placeholder="••••••••">
-                </div>
-                <div class="form-group">
-                    <label for="room-name">Room name</label>
-                    <input id="room-name" name="roomName" maxlength="64" placeholder="My Awesome Lobby">
-                </div>
+                <section id="login-panel" aria-labelledby="login-heading">
+                    <h2 id="login-heading">Login to Play</h2>
+                    <p class="login-subtitle">Choose how you want to enter the arena.</p>
+                    <div id="login-buttons" class="login-buttons">
+                        <button type="button" id="btn-google-login" class="login-provider login-google">
+                            <span class="google-mark" aria-hidden="true">G</span>
+                            <span>Continue with Google</span>
+                        </button>
+                        <button type="button" id="btn-guest-login" class="login-provider login-guest">
+                            <span aria-hidden="true">◈</span>
+                            <span>Play as Guest</span>
+                        </button>
+                    </div>
+                    <div id="guest-entry" class="guest-entry" hidden>
+                        <label for="guest-name">Guest name</label>
+                        <div class="guest-entry-row">
+                            <input id="guest-name" maxlength="32" placeholder="Guest_8492" autocomplete="nickname">
+                            <button type="button" id="btn-guest-continue">Continue</button>
+                        </div>
+                    </div>
+                    <div id="welcome-panel" class="welcome-panel" hidden>
+                        <span class="welcome-kicker">PROFILE READY</span>
+                        <p>Welcome, <strong id="welcome-name"></strong></p>
+                        <button type="button" id="btn-open-settings" class="settings-trigger" aria-label="Nickname settings" title="Nickname settings">⚙️</button>
+                        <button type="button" id="btn-change-login" class="change-login">Change login</button>
+                    </div>
+                    <input id="display-name" name="displayName" type="hidden">
+                </section>
+                <div id="lobby-options" hidden>
                 <div class="form-group">
                     <label for="room-code">Room code (leave empty to create)</label>
                     <input id="room-code" name="roomCode" maxlength="6" placeholder="ABC123">
@@ -50,15 +68,30 @@
                         <option value="BOLT_ACTION_RIFLE">Bolt-Action Rifle — AWM</option>
                     </select>
                 </div>
+                </div>
+                <div id="lobby-submit-section" hidden>
                 <button type="submit" id="btn-submit-lobby">
-                    <span class="btn-text">Create / Join Room</span>
+                    <span class="btn-text">Enter Battleground</span>
                     <span class="btn-spinner" hidden></span>
                 </button>
+                </div>
                 <div id="lobby-error" class="error-toast" hidden role="alert">
                     <span class="error-icon">⚠️</span>
                     <span class="error-message"></span>
                     <button type="button" class="error-dismiss" aria-label="Close error">&times;</button>
                 </div>
+                <section id="settings-modal" class="settings-modal" hidden aria-labelledby="settings-title" role="dialog" aria-modal="true">
+                    <div class="settings-card">
+                        <button type="button" id="btn-close-settings" class="settings-close" aria-label="Close settings">&times;</button>
+                        <span class="welcome-kicker">PLAYER PROFILE</span>
+                        <h2 id="settings-title">Nickname settings</h2>
+                        <p>Choose a unique nickname. Other players will see this name in the arena.</p>
+                        <label for="nickname-input">Nickname</label>
+                        <input id="nickname-input" maxlength="32" minlength="3" autocomplete="nickname" placeholder="Your unique nickname">
+                        <span id="nickname-error" class="error-text" aria-live="polite"></span>
+                        <button type="button" id="btn-save-nickname" class="save-nickname">Save nickname</button>
+                    </div>
+                </section>
             </form>
         </div>
     </section>

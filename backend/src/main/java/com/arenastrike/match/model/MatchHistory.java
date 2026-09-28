@@ -1,13 +1,18 @@
 package com.arenastrike.match.model;
 
+import com.arenastrike.common.model.BaseEntity;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
 @Table(name = "match_history")
-public class MatchHistory {
+@SQLDelete(sql = "UPDATE match_history SET deleted_at = CURRENT_TIMESTAMP(6), updated_at = CURRENT_TIMESTAMP(6) WHERE id = ?")
+@SQLRestriction("deleted_at IS NULL")
+public class MatchHistory extends BaseEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

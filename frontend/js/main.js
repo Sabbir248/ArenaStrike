@@ -25,6 +25,8 @@ let roomCode = query.get("room")?.toUpperCase() || "";
 // random number because StatsService looks up real database rows by this ID.
 let playerId = null;
 let displayName = query.get("name") || "";
+let accountNickname = null;
+let authToken = sessionStorage.getItem("arena_jwt") || "";
 let weapon = query.get("weapon") || "ASSAULT_RIFLE";
 let selectedMap = query.get("map") || "MAP_1";
 const movement = { forward: 0, strafe: 0 };
@@ -62,6 +64,250 @@ function updateAmmoDisplay() {
     reserveAmmoElement.textContent = String(reserveAmmo);
 }
 updateAmmoDisplay();
+
+function showLobbyMessage(message) {
+    const lobbyError = document.querySelector("#lobby-error");
+    lobbyError.querySelector(".error-message").textContent = message;
+    lobbyError.hidden = false;
+}
+document.querySelector("#lobby-error .error-dismiss").addEventListener("click", () => {
+    document.querySelector("#lobby-error").hidden = true;
+});
+
+function completeLogin(name) {
+    const normalizedName = String(name || "").trim().slice(0, 32);
+    if (!normalizedName) {
+        showLobbyMessage("We couldn't read a name from that profile. Please try again.");
+        return false;
+    }
+
+    displayName = normalizedName;
+    document.querySelector("#display-name").value = displayName;
+    document.querySelector("#welcome-name").textContent = displayName;
+    document.querySelector("#login-buttons").hidden = true;
+    document.querySelector("#guest-entry").hidden = true;
+    document.querySelector("#welcome-panel").hidden = false;
+    document.querySelector("#lobby-options").hidden = false;
+    document.querySelector("#lobby-submit-section").hidden = false;
+    document.querySelector("#btn-submit-lobby").disabled = !accountNickname || !authToken;
+    document.querySelector("#lobby-error").hidden = true;
+    return true;
+}
+
+function suggestNickname(name) {
+    const cleaned = String(name || "").normalize("NFKC").replace(/[^\p{L}\p{N}_ ]/gu, "").trim().replace(/\s+/g, "_").slice(0, 24);
+    return cleaned.length >= 3 ? cleaned : `Player_${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function setAuthenticatedSession(account, fallbackName) {
+    authToken = account.token;
+    playerId = account.playerId;
+    accountNickname = account.nickname || null;
+    sessionStorage.setItem("arena_jwt", authToken);
+    const preferredName = accountNickname || account.profileName || fallbackName || account.username;
+    completeLogin(preferredName);
+    return refreshSavedNickname(fallbackName || account.profileName || account.username);
+}
+
+async function refreshSavedNickname(fallbackName) {
+    if (!authToken) return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/settings/nickname`, {
+            headers: { Authorization: `Bearer ${authToken}` }
+        });
+        if (!response.ok) throw new Error("Unable to load your saved nickname.");
+        const profile = await response.json();
+        accountNickname = profile.nickname || null;
+        if (accountNickname) {
+            displayName = accountNickname;
+            document.querySelector("#display-name").value = accountNickname;
+            document.querySelector("#welcome-name").textContent = accountNickname;
+            document.querySelector("#btn-submit-lobby").disabled = false;
+            document.querySelector("#settings-modal").hidden = true;
+        } else {
+            document.querySelector("#btn-submit-lobby").disabled = true;
+            document.querySelector("#nickname-input").value = suggestNickname(fallbackName);
+            openNicknameSettings();
+        }
+    } catch (error) {
+        showLobbyMessage(error.message || "Unable to load your saved nickname.");
+    }
+}
+
+async function authenticateWithOAuth(provider, credential, fallbackName) {
+    const response = await fetch(`${API_BASE_URL}/auth/oauth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, credential })
+    });
+    if (!response.ok) {
+        let message = "Social sign-in could not be verified by the game server.";
+        try {
+            const error = await response.json();
+            message = error.detail || error.message || message;
+        } catch { /* Keep the friendly fallback for non-JSON errors. */ }
+        throw new Error(message);
+    }
+    await setAuthenticatedSession(await response.json(), fallbackName);
+}
+
+function openNicknameSettings() {
+    document.querySelector("#nickname-error").textContent = "";
+    document.querySelector("#settings-modal").hidden = false;
+    document.querySelector("#nickname-input").focus();
+}
+
+const GOOGLE_CLIENT_ID = "669840629062-homu57ddil3e8nj1eqlmniak356cgr0d.apps.googleusercontent.com";
+let googleIdentityInitialized = false;
+
+function handleGoogleCredentialResponse(response) {
+    try {
+        if (!response?.credential) throw new Error("Google did not return a credential.");
+        // This decode is only used to populate the display name. The ID token
+        // must be verified by the backend before it is trusted for auth.
+        const encodedPayload = response.credential.split(".")[1];
+        const base64Payload = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
+        const paddedPayload = base64Payload.padEnd(Math.ceil(base64Payload.length / 4) * 4, "=");
+        const bytes = Uint8Array.from(atob(paddedPayload), (character) => character.charCodeAt(0));
+        const profile = JSON.parse(new TextDecoder().decode(bytes));
+        authenticateWithOAuth("google", response.credential, profile.name)
+            .catch((error) => showLobbyMessage(error.message || "Google sign-in could not be completed."));
+    } catch (error) {
+        showLobbyMessage(error?.message || "Google sign-in could not be completed.");
+    }
+}
+
+function initializeGoogleIdentity() {
+    if (googleIdentityInitialized || !window.google?.accounts?.id) return;
+    window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleCredentialResponse
+    });
+    googleIdentityInitialized = true;
+}
+
+const googleSdkScript = document.querySelector("#google-gsi-sdk");
+googleSdkScript.addEventListener("load", initializeGoogleIdentity);
+initializeGoogleIdentity();
+
+function loginWithGoogle() {
+    initializeGoogleIdentity();
+    if (GOOGLE_CLIENT_ID === "YOUR_GOOGLE_CLIENT_ID_HERE") {
+        showLobbyMessage("Add your Google OAuth client ID in main.js to enable Google sign-in.");
+        return;
+    }
+    if (!googleIdentityInitialized) {
+        showLobbyMessage("Google sign-in is still loading. Please try again shortly.");
+        return;
+    }
+    window.google.accounts.id.prompt();
+}
+
+window.loginWithGoogle = loginWithGoogle;
+
+document.querySelector("#btn-google-login").addEventListener("click", loginWithGoogle);
+document.querySelector("#btn-guest-login").addEventListener("click", () => {
+    const guestEntry = document.querySelector("#guest-entry");
+    guestEntry.hidden = false;
+    document.querySelector("#login-buttons").hidden = true;
+    const guestName = document.querySelector("#guest-name");
+    if (!guestName.value) guestName.value = `Guest_${Math.floor(1000 + Math.random() * 9000)}`;
+    guestName.focus();
+});
+document.querySelector("#btn-guest-continue").addEventListener("click", async () => {
+    const guestName = document.querySelector("#guest-name").value.trim();
+    if (!guestName) {
+        showLobbyMessage("Enter a guest name to continue.");
+        document.querySelector("#guest-name").focus();
+        return;
+    }
+    try {
+        const response = await fetch(`${API_BASE_URL}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: guestName })
+        });
+        if (!response.ok) throw new Error("Guest sign-in could not be completed.");
+        const account = await response.json();
+        await setAuthenticatedSession({ ...account, profileName: account.username }, guestName);
+    } catch (error) {
+        showLobbyMessage(error.message || "Guest sign-in could not be completed.");
+    }
+});
+document.querySelector("#guest-name").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+        event.preventDefault();
+        document.querySelector("#btn-guest-continue").click();
+    }
+});
+document.querySelector("#btn-change-login").addEventListener("click", () => {
+    displayName = "";
+    accountNickname = null;
+    authToken = "";
+    playerId = null;
+    sessionStorage.removeItem("arena_jwt");
+    document.querySelector("#display-name").value = "";
+    document.querySelector("#btn-submit-lobby").disabled = true;
+    document.querySelector("#welcome-panel").hidden = true;
+    document.querySelector("#lobby-options").hidden = true;
+    document.querySelector("#lobby-submit-section").hidden = true;
+    document.querySelector("#guest-entry").hidden = true;
+    document.querySelector("#login-buttons").hidden = false;
+});
+
+document.querySelector("#btn-open-settings").addEventListener("click", openNicknameSettings);
+document.querySelector("#btn-close-settings").addEventListener("click", () => {
+    if (accountNickname) document.querySelector("#settings-modal").hidden = true;
+});
+document.querySelector("#settings-modal").addEventListener("click", (event) => {
+    if (event.target.id === "settings-modal" && accountNickname) {
+        document.querySelector("#settings-modal").hidden = true;
+    }
+});
+document.querySelector("#btn-save-nickname").addEventListener("click", async () => {
+    const nicknameInput = document.querySelector("#nickname-input");
+    const errorElement = document.querySelector("#nickname-error");
+    const saveButton = document.querySelector("#btn-save-nickname");
+    const nickname = nicknameInput.value.trim().replace(/\s+/g, " ");
+    errorElement.textContent = "";
+    if (nickname.length < 3 || nickname.length > 32) {
+        errorElement.textContent = "Nickname must be between 3 and 32 characters.";
+        nicknameInput.focus();
+        return;
+    }
+    saveButton.disabled = true;
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/settings/nickname`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ nickname })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            if (response.status === 409 || payload.detail === "Nickname already taken") {
+                throw new Error("Nickname already taken");
+            }
+            throw new Error(payload.detail || payload.message || "Nickname could not be saved.");
+        }
+        accountNickname = payload.nickname;
+        displayName = accountNickname;
+        document.querySelector("#display-name").value = displayName;
+        document.querySelector("#welcome-name").textContent = displayName;
+        document.querySelector("#btn-submit-lobby").disabled = false;
+        document.querySelector("#settings-modal").hidden = true;
+        const welcome = document.querySelector("#welcome-panel");
+        welcome.classList.remove("nickname-saved");
+        void welcome.offsetWidth;
+        welcome.classList.add("nickname-saved");
+    } catch (error) {
+        errorElement.textContent = error.message;
+    } finally {
+        saveButton.disabled = false;
+    }
+});
 
 function updateTimer(remainingSeconds) {
     if (remainingSeconds <= 0) {
@@ -627,7 +873,12 @@ async function submitLobby(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const requestedRoom = String(form.get("roomCode") || "").trim().toUpperCase();
-    displayName = String(form.get("displayName")).trim();
+    if (!authToken || !accountNickname) {
+        openNicknameSettings();
+        showLobbyMessage("Save a unique nickname before entering the battleground.");
+        return;
+    }
+    displayName = accountNickname;
     weapon = String(form.get("weapon"));
     
     const lobbyError = document.querySelector("#lobby-error");
@@ -643,30 +894,8 @@ async function submitLobby(event) {
     btnText.textContent = "Connecting...";
     btnSpinner.hidden = false;
 
-    // Dismiss error handler
-    const dismissBtn = lobbyError.querySelector(".error-dismiss");
-    if (dismissBtn) {
-        dismissBtn.onclick = () => lobbyError.hidden = true;
-    }
-
     try {
-        const password = String(form.get("password") || "");
-        let jwtToken = null;
-        
-        const authRes = await fetch(`${API_BASE_URL}/auth/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username: displayName, password: password })
-        });
-        
-        if (authRes.ok) {
-            const authData = await authRes.json();
-            jwtToken = authData.token;
-            displayName = authData.username; // update in case of guest UUID fallback
-            sessionStorage.setItem("arena_jwt", jwtToken);
-        } else {
-            throw new Error("Invalid password or authentication failed");
-        }
+        const jwtToken = authToken;
 
         const response = requestedRoom
             ? await fetch(`${API_BASE_URL}/api/lobby/${requestedRoom}/join`, {
@@ -684,7 +913,7 @@ async function submitLobby(event) {
                     ...(jwtToken ? { "Authorization": `Bearer ${jwtToken}` } : {})
                 },
                 body: JSON.stringify({
-                    roomName: String(form.get("roomName")) || "Arena Match",
+                    roomName: `${displayName}'s Arena`,
                     displayName,
                     map: String(form.get("map")),
                     playerLimit: Number(form.get("playerLimit"))
@@ -747,12 +976,17 @@ async function submitLobby(event) {
         lobbyError.hidden = false;
     } finally {
         submitBtn.disabled = false;
-        btnText.textContent = "Create / Join Room";
+        btnText.textContent = "Enter Battleground";
         btnSpinner.hidden = true;
     }
 }
 
 document.querySelector("#lobby-form").addEventListener("submit", submitLobby);
+
+if (displayName) {
+    completeLogin(displayName);
+    if (authToken) refreshSavedNickname(displayName);
+}
 
 if (roomCode && displayName) {
     startGame().catch((error) => {
