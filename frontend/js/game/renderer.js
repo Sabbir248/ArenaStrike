@@ -49,6 +49,7 @@ export class ArenaStrikeRenderer {
         this.viewmodelScene = new THREE.Scene();
         this.viewmodelCamera = new THREE.PerspectiveCamera(70, 1, 0.01, 100);
         this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        this.pixelRatio = 0;
         this.renderer.autoClear = false;
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -400,6 +401,28 @@ export class ArenaStrikeRenderer {
     }
 
     spawnLocalPlayer(weapon = "ASSAULT_RIFLE") {
+        // A room/game start callback can run more than once. Remove the old
+        // viewmodel before creating its replacement so an idle gun cannot be
+        // left behind underneath the newly animated one.
+        const disposeModel = (model) => {
+            if (!model) return;
+            model.traverse((object) => {
+                if (!object.isMesh) return;
+                if (object.geometry) object.geometry.dispose();
+                if (object.material) {
+                    if (Array.isArray(object.material)) {
+                        object.material.forEach((material) => this.disposeMaterial(material));
+                    } else {
+                        this.disposeMaterial(object.material);
+                    }
+                }
+            });
+            if (model.parent) model.parent.remove(model);
+        };
+        disposeModel(this.firstPersonWeapon);
+        disposeModel(this.localPlayer);
+        this.muzzleLight = null;
+
         this.currentWeaponType = weapon;
         this.localPlayer = this.createPlayerModel(0x4ea5d9, weapon);
         this.localPlayer.visible = false;
@@ -857,9 +880,14 @@ export class ArenaStrikeRenderer {
     }
 
     resize() {
-        const width = this.renderer.domElement.clientWidth;
-        const height = this.renderer.domElement.clientHeight;
+        const width = window.innerWidth;
+        const height = window.innerHeight;
         if (width && height) {
+            const pixelRatio = window.devicePixelRatio || 1;
+            if (pixelRatio !== this.pixelRatio) {
+                this.pixelRatio = pixelRatio;
+                this.renderer.setPixelRatio(pixelRatio);
+            }
             this.camera.aspect = width / height;
             this.camera.updateProjectionMatrix();
             if (this.viewmodelCamera) {
