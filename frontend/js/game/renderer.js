@@ -503,6 +503,9 @@ export class ArenaStrikeRenderer {
         if (this.localPlayer) {
             this.localPlayer.position.set(position.x, position.y, position.z);
             this.localPlayer.rotation.y = rotation.y;
+            if (this.localPlayer.userData.headPivot) {
+                this.localPlayer.userData.headPivot.rotation.x = rotation.x || 0;
+            }
             this.applyStance(this.localPlayer, stance);
         }
     }
@@ -564,7 +567,7 @@ export class ArenaStrikeRenderer {
                 serverTick: serverTick,
                 timestamp: performance.now(),
                 position: { ...player.position },
-                rotation: player.rotation.y,
+                rotation: { x: player.rotation.x || 0, y: player.rotation.y || 0 },
                 stance: player.state
             });
             if (remote.snapshotBuffer.length > 20) {
@@ -643,13 +646,16 @@ export class ArenaStrikeRenderer {
                 speed = remote.mesh.position.distanceTo(next) / deltaSeconds;
                 remote.mesh.position.copy(next);
                 
-                let r0 = snap0.rotation;
-                let r1 = snap1.rotation;
+                let r0 = snap0.rotation.y;
+                let r1 = snap1.rotation.y;
                 if (Math.abs(r1 - r0) > Math.PI) {
                     if (r1 > r0) r0 += Math.PI * 2;
                     else r1 += Math.PI * 2;
                 }
                 remote.mesh.rotation.y = THREE.MathUtils.lerp(r0, r1, alpha);
+                if (remote.mesh.userData.headPivot) {
+                    remote.mesh.userData.headPivot.rotation.x = THREE.MathUtils.lerp(snap0.rotation.x, snap1.rotation.x, alpha);
+                }
                 this.applyStance(remote.mesh, snap1.stance);
             } else if (renderTime > snap1.timestamp) {
                 const next = new THREE.Vector3().copy(snap1.position);
@@ -663,13 +669,19 @@ export class ArenaStrikeRenderer {
                 }
                 speed = remote.mesh.position.distanceTo(next) / deltaSeconds;
                 remote.mesh.position.copy(next);
-                remote.mesh.rotation.y = snap1.rotation;
+                remote.mesh.rotation.y = snap1.rotation.y;
+                if (remote.mesh.userData.headPivot) {
+                    remote.mesh.userData.headPivot.rotation.x = snap1.rotation.x;
+                }
                 this.applyStance(remote.mesh, snap1.stance);
             } else {
                 const next = new THREE.Vector3().copy(snap0.position);
                 speed = remote.mesh.position.distanceTo(next) / deltaSeconds;
                 remote.mesh.position.copy(next);
-                remote.mesh.rotation.y = snap0.rotation;
+                remote.mesh.rotation.y = snap0.rotation.y;
+                if (remote.mesh.userData.headPivot) {
+                    remote.mesh.userData.headPivot.rotation.x = snap0.rotation.x;
+                }
                 this.applyStance(remote.mesh, snap0.stance);
             }
 

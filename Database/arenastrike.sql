@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Sep 28, 2026 at 06:22 PM
+-- Generation Time: Sep 29, 2026 at 04:23 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -51,8 +51,7 @@ INSERT INTO `flyway_schema_history` (`installed_rank`, `version`, `description`,
 (4, '4', 'refactor stats and history', 'SQL', 'V4__refactor_stats_and_history.sql', 444847430, 'root', '2026-09-11 13:28:35', 106, 1),
 (5, '5', 'Optimize Schema', 'SQL', 'V5__Optimize_Schema.sql', -239289735, 'root', '2026-09-23 15:14:54', 8, 1),
 (6, '6', 'add auditing and soft deletes', 'SQL', 'V6__add_auditing_and_soft_deletes.sql', -1849675166, 'root', '2026-09-28 15:27:20', 135, 1),
-(7, '7', 'add unique nicknames and oauth identities', 'SQL', 'V7__add_unique_nicknames_and_oauth_identities.sql', 2074449080, 'root', '2026-09-28 15:35:06', 42, 1),
-(8, '8', 'remove password column', 'SQL', 'V8__remove_password_column.sql', 1356172423, 'root', '2026-09-28 16:20:52', 9, 0);
+(7, '7', 'add unique nicknames and oauth identities', 'SQL', 'V7__add_unique_nicknames_and_oauth_identities.sql', 2074449080, 'root', '2026-09-28 15:35:06', 42, 1);
 
 -- --------------------------------------------------------
 
@@ -150,7 +149,8 @@ INSERT INTO `lobbies` (`id`, `room_code`, `map`, `player_limit`, `status`, `crea
 (71, 'SGYCRY', 'MAP_WAREHOUSE', 2, 'WAITING', '2026-09-28 08:31:12.000000', 'Arena Match', '2026-09-28 14:48:54.454570', NULL),
 (72, '4VMAR2', 'MAP_WAREHOUSE', 2, 'WAITING', '2026-09-28 08:34:20.000000', 'Arena Match', '2026-09-28 14:48:54.454570', NULL),
 (73, 'JX6RJQ', 'MAP_WAREHOUSE', 2, 'WAITING', '2026-09-28 08:46:52.000000', 'Guest_1557\'s Arena', '2026-09-28 14:48:54.454570', NULL),
-(74, 'A2D52W', 'MAP_WAREHOUSE', 2, 'WAITING', '2026-09-28 09:35:43.000000', 'Guest_9005\'s Arena', '2026-09-28 09:35:43.000000', NULL);
+(74, 'A2D52W', 'MAP_WAREHOUSE', 2, 'WAITING', '2026-09-28 09:35:43.000000', 'Guest_9005\'s Arena', '2026-09-28 09:35:43.000000', NULL),
+(75, 'QTEUHM', 'MAP_BUNKER', 2, 'WAITING', '2026-09-29 08:21:54.000000', 'sabbir_rahman\'s Arena', '2026-09-29 08:21:54.000000', NULL);
 
 -- --------------------------------------------------------
 
@@ -258,7 +258,8 @@ INSERT INTO `lobby_participants` (`id`, `lobby_id`, `user_id`, `joined_at`, `is_
 (114, 71, 131, '2026-09-28 08:31:12.000000', 0, '2026-09-28 14:48:54.478591', '2026-09-28 14:48:54.478591', NULL),
 (115, 72, 132, '2026-09-28 08:34:20.000000', 0, '2026-09-28 14:48:54.478591', '2026-09-28 14:48:54.478591', NULL),
 (116, 73, 133, '2026-09-28 08:46:52.000000', 0, '2026-09-28 14:48:54.478591', '2026-09-28 14:48:54.478591', NULL),
-(117, 74, 134, '2026-09-28 09:35:43.000000', 0, '2026-09-28 09:35:43.000000', '2026-09-28 09:35:43.000000', NULL);
+(117, 74, 134, '2026-09-28 09:35:43.000000', 0, '2026-09-28 09:35:43.000000', '2026-09-28 09:35:43.000000', NULL),
+(118, 75, 135, '2026-09-29 08:21:54.000000', 0, '2026-09-29 08:21:54.000000', '2026-09-29 08:21:54.000000', NULL);
 
 -- --------------------------------------------------------
 
@@ -410,7 +411,8 @@ INSERT INTO `players` (`id`, `username`, `created_at`, `total_kills`, `total_dea
 (131, 'mklm', '2026-09-28 08:31:12.000000', 0, 0, 0, 0, '2026-09-28 14:48:54.421557', NULL, NULL, NULL, NULL),
 (132, 'm', '2026-09-28 08:34:20.000000', 0, 0, 0, 0, '2026-09-28 14:48:54.421557', NULL, NULL, NULL, NULL),
 (133, 'Guest_1557', '2026-09-28 08:46:51.000000', 0, 0, 0, 0, '2026-09-28 14:48:54.421557', NULL, NULL, NULL, NULL),
-(134, 'Guest_9005', '2026-09-28 15:35:35.665598', 0, 0, 0, 0, '2026-09-28 09:35:35.000000', NULL, 'Guest_9005', NULL, NULL);
+(134, 'Guest_9005', '2026-09-28 15:35:35.665598', 0, 0, 0, 0, '2026-09-28 09:35:35.000000', NULL, 'Guest_9005', NULL, NULL),
+(135, 'google_20ef40022ccc4b3b', '2026-09-29 14:21:48.813956', 0, 0, 0, 0, '2026-09-29 08:21:48.000000', NULL, 'sabbir_rahman', 'google', '103961935151692115963');
 
 -- --------------------------------------------------------
 
@@ -502,13 +504,13 @@ ALTER TABLE `player_match_stats`
 -- AUTO_INCREMENT for table `lobbies`
 --
 ALTER TABLE `lobbies`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=75;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=76;
 
 --
 -- AUTO_INCREMENT for table `lobby_participants`
 --
 ALTER TABLE `lobby_participants`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=118;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=119;
 
 --
 -- AUTO_INCREMENT for table `match_history`
@@ -520,7 +522,7 @@ ALTER TABLE `match_history`
 -- AUTO_INCREMENT for table `players`
 --
 ALTER TABLE `players`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=135;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=136;
 
 --
 -- AUTO_INCREMENT for table `player_match_stats`

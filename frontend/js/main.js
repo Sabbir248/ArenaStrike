@@ -40,6 +40,7 @@ let playerVelocityZ = 0;
 let verticalVelocity = 0;
 let onGround = true;
 let stance = "STANDING";
+let currentEyeHeight = 1.7;
 let inputEnabled = true;
 let gameRunning = false;
 let animationFrameId = null;
@@ -396,8 +397,11 @@ function onKeyDown(event) {
         event.preventDefault();
     }
     keys.add(event.code);
-    if (event.code === "KeyZ") {
+    if (event.code === "KeyZ" || event.code === "KeyX") {
         stance = stance === "PRONE" ? "STANDING" : "PRONE";
+    }
+    if (event.code === "KeyC" || event.code === "ControlLeft" || event.code === "ControlRight") {
+        stance = stance === "CROUCHING" ? "STANDING" : "CROUCHING";
     }
     if (event.code === "KeyH") {
         document.querySelector("#controls-hint").classList.toggle("hidden");
@@ -529,29 +533,45 @@ function updateMovement(deltaSeconds) {
     // W follows the camera forward vector; S reverses it. A/D use camera right.
     movement.forward = Number(keys.has("KeyW")) - Number(keys.has("KeyS"));
     movement.strafe = Number(keys.has("KeyD")) - Number(keys.has("KeyA"));
-    if (stance !== "PRONE") {
-        stance = keys.has("KeyC") ? "CROUCHING" : "STANDING";
+
+    if (keys.has("Space") && onGround) {
+        if (stance === "STANDING") {
+            sounds.unlock();
+            sounds.jump();
+            verticalVelocity = 6.5;
+            onGround = false;
+        } else {
+            // Jumping from crouch/prone just stands up
+            stance = "STANDING";
+        }
     }
-    if (keys.has("Space") && onGround && stance === "STANDING") {
-        sounds.unlock();
-        sounds.jump();
-        verticalVelocity = 6.5;
-        onGround = false;
-    }
+    
     if (!onGround) {
         stance = "JUMPING";
     } else if (stance === "JUMPING") {
         stance = "STANDING";
     }
-    verticalVelocity -= 18 * deltaSeconds;
-    const eyeHeight = stance === "PRONE" ? 0.65 : stance === "CROUCHING" ? 1.15 : 1.7;
-    renderer.camera.position.y += verticalVelocity * deltaSeconds;
-    if (renderer.camera.position.y <= eyeHeight) {
-        renderer.camera.position.y = eyeHeight;
+    
+    const targetEyeHeight = stance === "PRONE" ? 0.65 : stance === "CROUCHING" ? 1.15 : 1.7;
+    currentEyeHeight += (targetEyeHeight - currentEyeHeight) * 10 * deltaSeconds;
+
+    if (!onGround) {
+        verticalVelocity -= 18 * deltaSeconds;
+        renderer.camera.position.y += verticalVelocity * deltaSeconds;
+        if (renderer.camera.position.y <= currentEyeHeight) {
+            renderer.camera.position.y = currentEyeHeight;
+            verticalVelocity = 0;
+            onGround = true;
+        }
+    } else {
+        renderer.camera.position.y = currentEyeHeight;
         verticalVelocity = 0;
-        onGround = true;
     }
-    const targetSpeed = (stance === "PRONE" ? 2.5 : stance === "CROUCHING" ? 4 : 7);
+
+    const baseSpeed = 4.8; // Tactical, controlled pace
+    const speedMultiplier = stance === "PRONE" ? 0.25 : stance === "CROUCHING" ? 0.45 : 1.0;
+    const targetSpeed = baseSpeed * speedMultiplier;
+    
     const length = Math.hypot(movement.forward, movement.strafe) || 1;
     const forward = movement.forward / length;
     const strafe = movement.strafe / length;
@@ -565,7 +585,10 @@ function updateMovement(deltaSeconds) {
     const targetVelX = (forward * forwardX + strafe * rightX) * targetSpeed;
     const targetVelZ = (forward * forwardZ + strafe * rightZ) * targetSpeed;
 
-    const acceleration = (movement.forward !== 0 || movement.strafe !== 0) ? (onGround ? 10 : 3) : (onGround ? 8 : 1);
+    // Smooth, weighty acceleration and deceleration (damping)
+    const accelRate = onGround ? 6.0 : 1.5;
+    const decelRate = onGround ? 7.0 : 0.5;
+    const acceleration = (movement.forward !== 0 || movement.strafe !== 0) ? accelRate : decelRate;
     
     playerVelocityX += (targetVelX - playerVelocityX) * acceleration * deltaSeconds;
     playerVelocityZ += (targetVelZ - playerVelocityZ) * acceleration * deltaSeconds;
@@ -573,7 +596,7 @@ function updateMovement(deltaSeconds) {
     const nextX = renderer.camera.position.x + playerVelocityX * deltaSeconds;
     const nextZ = renderer.camera.position.z + playerVelocityZ * deltaSeconds;
 
-    const feetY = renderer.camera.position.y - (stance === "PRONE" ? 0.65 : stance === "CROUCHING" ? 1.15 : 1.7);
+    const feetY = renderer.camera.position.y - currentEyeHeight;
     if (renderer.canMoveTo(nextX, renderer.camera.position.z, feetY)) {
         renderer.camera.position.x = nextX;
     } else {
@@ -596,7 +619,7 @@ function updateMovement(deltaSeconds) {
 }
 
 function publishLocalState() {
-    const feetY = renderer.camera.position.y - (stance === "PRONE" ? 0.65 : stance === "CROUCHING" ? 1.15 : 1.7);
+    const feetY = renderer.camera.position.y - currentEyeHeight;
     socket.publishInput(roomCode, {
         playerId,
         x: renderer.camera.position.x,

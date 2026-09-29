@@ -159,5 +159,6 @@ export function createTacticalSoldierModel(teamColorHex) {
     rightKnee.add(rightBoot);
 
     root.userData.walkPhase = Math.random() * Math.PI * 2;
+    root.rotation.y = Math.PI;
     return root;
 }
