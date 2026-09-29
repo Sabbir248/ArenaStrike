@@ -55,8 +55,16 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="player-limit">Player limit</label>
-                    <input id="player-limit" name="playerLimit" type="number" min="2" max="10" value="2">
+                    <label for="game-mode-select">Game Mode</label>
+                    <select id="game-mode-select">
+                        <option value="FFA_4">Solo FFA (4 Players)</option>
+                        <option value="FFA_8">Solo FFA (8 Players)</option>
+                        <option value="FFA_10">Solo FFA (10 Players)</option>
+                        <option value="TEAM_4">2v2 Squad (4 Players)</option>
+                        <option value="TEAM_6">3v3 Squad (6 Players)</option>
+                        <option value="TEAM_8">4v4 Squad (8 Players)</option>
+                        <option value="TEAM_10" selected>5v5 Squad (10 Players)</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label for="weapon">Starting weapon</label>
@@ -157,14 +165,28 @@
         <section id="hud-top-right">
             <div id="live-scoreboard" class="cyber-hud-element">
                 <div class="scoreboard-header">LIVE RANKING</div>
-                <table id="mini-scoreboard-table">
-                    <thead>
-                        <tr><th>Player</th><th>Kills</th></tr>
-                    </thead>
-                    <tbody id="mini-scoreboard-body">
-                        <!-- Populated by JS -->
-                    </tbody>
-                </table>
+                <div id="team-scoreboard-container" style="display: flex; gap: 15px;">
+                    <div>
+                        <div style="color: #66aaff; font-weight: bold; margin-bottom: 5px;">TEAM A</div>
+                        <table class="mini-scoreboard-table">
+                            <thead><tr><th>Player</th><th>Kills</th></tr></thead>
+                            <tbody id="team-a-body"></tbody>
+                        </table>
+                    </div>
+                    <div>
+                        <div style="color: #ff6666; font-weight: bold; margin-bottom: 5px;">TEAM B</div>
+                        <table class="mini-scoreboard-table">
+                            <thead><tr><th>Player</th><th>Kills</th></tr></thead>
+                            <tbody id="team-b-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="ffa-scoreboard-container" style="display: none;">
+                    <table class="mini-scoreboard-table" style="width: 100%;">
+                        <thead><tr><th>Player</th><th>Kills</th></tr></thead>
+                        <tbody id="ffa-body"></tbody>
+                    </table>
+                </div>
             </div>
             <aside id="kill-feed" aria-live="polite" aria-label="Live kill feed"></aside>
         </section>
@@ -175,7 +197,18 @@
         <div id="crosshair" aria-hidden="true">
             <span></span><span></span><span></span><span></span>
         </div>
+        <div id="sniper-overlay" hidden aria-hidden="true">
+            <div class="sniper-line-h"></div>
+            <div class="sniper-line-v"></div>
+            <div class="sniper-circle"></div>
+            <div class="sniper-vignette"></div>
+        </div>
+        <div id="red-dot-overlay" hidden aria-hidden="true">
+            <div class="red-dot-lens"></div>
+            <div class="red-dot-center"></div>
+        </div>
         <div id="hit-marker" hidden aria-live="polite"></div>
+        <div id="damage-vignette"></div>
         <section id="match-over" hidden aria-live="assertive"></section>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>

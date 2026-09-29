@@ -43,7 +43,7 @@ public class GameStateService {
     public RoomGameState joinRoom(String roomCode, PlayerState player, String sessionId) {
         String normalized = normalizeRoomCode(roomCode);
         GameRoomBundle bundle = activeRooms.computeIfAbsent(normalized, ignored -> {
-            GameRoomState state = new GameRoomState(normalized, lobbyMap(normalized), lobbyLimit(normalized));
+            GameRoomState state = new GameRoomState(normalized, lobbyMap(normalized), lobbyLimit(normalized), lobbyGameMode(normalized));
             GameRoom engine = new GameRoom(normalized, state, messagingTemplate,
                     summary -> statsService.recordCompletedMatchAsync(summary, 300),
                     summary -> finishRoom(normalized, summary));
@@ -203,6 +203,12 @@ public class GameStateService {
     private int lobbyLimit(String roomCode) {
         return lobbyRepository.findByRoomCode(roomCode)
                 .map(lobby -> lobby.getPlayerLimit())
+                .orElseThrow(() -> new GameStateConflictException("Lobby is not active"));
+    }
+
+    private String lobbyGameMode(String roomCode) {
+        return lobbyRepository.findByRoomCode(roomCode)
+                .map(lobby -> lobby.getGameMode())
                 .orElseThrow(() -> new GameStateConflictException("Lobby is not active"));
     }
 

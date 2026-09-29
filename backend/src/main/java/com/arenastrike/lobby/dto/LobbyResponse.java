@@ -10,6 +10,7 @@ public record LobbyResponse(
         String roomName,
         GameMap map,
         int maxPlayers,
+        String gameMode,
         int currentPlayers,
         LobbyStatus status,
         LocalDateTime createdAt,
@@ -40,7 +41,7 @@ public record LobbyResponse(
         Long hostId = players.isEmpty() ? null : players.get(0).userId();
         return new LobbyResponse(
                 lobby.getRoomCode(), lobby.getRoomName(), lobby.getMap(), lobby.getPlayerLimit(),
-                players.size(), lobby.getStatus(), lobby.getCreatedAt(), players, myPlayerId, hostId);
+                lobby.getGameMode(), players.size(), lobby.getStatus(), lobby.getCreatedAt(), players, myPlayerId, hostId);
     }
 
     /**

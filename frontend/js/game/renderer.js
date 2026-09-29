@@ -45,7 +45,7 @@ export class ArenaStrikeRenderer {
     constructor(canvas) {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x101520);
-        this.scene.fog = new THREE.FogExp2(0x101520, 0.015);
+        this.scene.fog = new THREE.Fog(0x101520, 20, 150);
         this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, 250);
         this.camera.position.set(0, 1.7, 8);
         this.camera.rotation.order = "YXZ";
@@ -80,8 +80,38 @@ export class ArenaStrikeRenderer {
         this.characterTemplate = null;
         this.gunTemplates = new Map();
         this.firstPersonWeapon = null;
+        this.muzzleLight = null;
+        this.muzzleFlash = null;
         this.hitMarkerTimeout = null;
         this.weaponRecoil = 0;
+        
+        // Tracer Pool
+        this.tracers = [];
+        const tracerGeo = new THREE.CylinderGeometry(0.015, 0.015, 1, 4);
+        tracerGeo.rotateX(Math.PI / 2);
+        const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
+        for (let i = 0; i < 20; i++) {
+            const t = new THREE.Mesh(tracerGeo, tracerMat.clone());
+            t.visible = false;
+            this.scene.add(t);
+            this.tracers.push({ mesh: t, active: false, life: 0, startPos: new THREE.Vector3(), endPos: new THREE.Vector3() });
+        }
+        
+        // Particle Pool
+        this.particlePool = [];
+        const particleGeo = new THREE.BoxGeometry(0.04, 0.04, 0.04);
+        for (let i = 0; i < 150; i++) {
+            const pMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1 });
+            const p = new THREE.Mesh(particleGeo, pMat);
+            p.visible = false;
+            this.scene.add(p);
+            this.particlePool.push({
+                mesh: p, active: false, life: 0, maxLife: 1, 
+                velocity: new THREE.Vector3(), 
+                gravity: 9.8, type: 'spark'
+            });
+        }
+
         this.aiming = false;
         this.lastCameraPos = new THREE.Vector3();
         this.bobPhase = 0;
@@ -228,9 +258,15 @@ export class ArenaStrikeRenderer {
     }
 
     addLighting() {
-        this.scene.add(new THREE.AmbientLight(0x334455));
+        // Deep ambient base for rich, pitch-black shadows
+        this.scene.add(new THREE.AmbientLight(0x0a0f15));
         
-        const moon = new THREE.DirectionalLight(0x88aacc, 1.5);
+        // Hemisphere light adds realistic sky-bounce and ground-bounce without washing out shadows
+        const hemiLight = new THREE.HemisphereLight(0x1a2638, 0x05080c, 1.2);
+        this.scene.add(hemiLight);
+        
+        // Stronger, cooler moon light for sharp, dramatic shadows
+        const moon = new THREE.DirectionalLight(0x7799bb, 2.0);
         moon.position.set(50, 80, 20);
         moon.castShadow = true;
         moon.shadow.mapSize.set(2048, 2048);
@@ -243,8 +279,9 @@ export class ArenaStrikeRenderer {
         moon.shadow.bias = -0.0005;
         this.scene.add(moon);
         
-        this.viewmodelScene.add(new THREE.AmbientLight(0x334455));
-        const viewmodelMoon = new THREE.DirectionalLight(0x88aacc, 1.5);
+        // Viewmodel specific lighting to make the first-person weapon look crisp
+        this.viewmodelScene.add(new THREE.AmbientLight(0x1a2638));
+        const viewmodelMoon = new THREE.DirectionalLight(0x7799bb, 2.0);
         viewmodelMoon.position.set(50, 80, 20);
         this.viewmodelScene.add(viewmodelMoon);
         
@@ -454,44 +491,77 @@ export class ArenaStrikeRenderer {
         let muzzleSocket = this.firstPersonWeapon.getObjectByName("muzzleSocket");
         if (!muzzleSocket) {
             muzzleSocket = new THREE.Group();
+            muzzleSocket.name = "muzzleSocket";
             muzzleSocket.position.set(0, 0, -0.5);
             this.firstPersonWeapon.add(muzzleSocket);
         }
 
         this.muzzleLight = new THREE.PointLight(0xffaa33, 0, 4.0);
         muzzleSocket.add(this.muzzleLight);
+        
+        const flashMat = new THREE.SpriteMaterial({ color: 0xffcc77, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+        this.muzzleFlash = new THREE.Sprite(flashMat);
+        this.muzzleFlash.scale.set(0.15, 0.15, 0.15);
+        this.muzzleFlash.position.set(0, 0, -0.05); 
+        this.muzzleFlash.visible = false;
+        muzzleSocket.add(this.muzzleFlash);
+
         this.viewmodelScene.add(this.viewmodelCamera);
         this.scene.add(this.camera);
     }
 
     setAiming(aiming) {
         this.aiming = aiming;
+        const crosshair = document.querySelector("#crosshair");
+        const sniperOverlay = document.querySelector("#sniper-overlay");
+        const redDotOverlay = document.querySelector("#red-dot-overlay");
+        
+        if (aiming) {
+            if (crosshair) crosshair.hidden = true;
+            if (this.currentWeaponType === "BOLT_ACTION_RIFLE") {
+                if (sniperOverlay) sniperOverlay.hidden = false;
+                if (redDotOverlay) redDotOverlay.hidden = true;
+                if (this.firstPersonWeapon) this.firstPersonWeapon.visible = false;
+            } else {
+                if (sniperOverlay) sniperOverlay.hidden = true;
+                if (redDotOverlay) redDotOverlay.hidden = false;
+                if (this.firstPersonWeapon) this.firstPersonWeapon.visible = true;
+            }
+        } else {
+            if (crosshair) crosshair.hidden = false;
+            if (sniperOverlay) sniperOverlay.hidden = true;
+            if (redDotOverlay) redDotOverlay.hidden = true;
+            if (this.firstPersonWeapon) this.firstPersonWeapon.visible = true;
+        }
     }
 
     fireWeapon(pitch, yaw) {
-        if (!this.firstPersonWeapon) {
-            return;
-        }
+        if (!this.firstPersonWeapon) return;
         this.weaponRecoil = 0.08;
+        
         if (this.muzzleLight) {
             this.muzzleLight.intensity = 2.0;
-            window.setTimeout(() => {
-                if (this.muzzleLight) this.muzzleLight.intensity = 0;
-            }, 40);
+            window.setTimeout(() => { if (this.muzzleLight) this.muzzleLight.intensity = 0; }, 40);
+        }
+        if (this.muzzleFlash) {
+            this.muzzleFlash.visible = true;
+            this.muzzleFlash.material.rotation = Math.random() * Math.PI;
+            this.muzzleFlash.material.opacity = 1.0;
+            window.setTimeout(() => { if (this.muzzleFlash) this.muzzleFlash.visible = false; }, 40);
         }
         
         if (pitch !== undefined && yaw !== undefined) {
             const startPoint = new THREE.Vector3();
-            if (this.firstPersonWeapon) {
-                const ms = this.firstPersonWeapon.getObjectByName("muzzleSocket");
-                if (ms) ms.getWorldPosition(startPoint);
+            const ms = this.firstPersonWeapon.getObjectByName("muzzleSocket");
+            if (ms) {
+                ms.getWorldPosition(startPoint);
+                startPoint.add(this.camera.position);
+            } else {
+                startPoint.copy(this.camera.position);
             }
             
-            const direction = new THREE.Vector3(
-                -Math.sin(yaw) * Math.cos(pitch),
-                Math.sin(pitch),
-                -Math.cos(yaw) * Math.cos(pitch)
-            ).normalize();
+            const direction = new THREE.Vector3();
+            this.camera.getWorldDirection(direction);
             
             const raycaster = new THREE.Raycaster(this.camera.position, direction);
             let endPoint = new THREE.Vector3().copy(this.camera.position).add(direction.clone().multiplyScalar(150));
@@ -500,23 +570,97 @@ export class ArenaStrikeRenderer {
             const validHits = intersects.filter(hit => hit.object !== this.localPlayer && hit.object !== this.firstPersonWeapon);
             if (validHits.length > 0) {
                 endPoint = validHits[0].point;
+                let normal = {x:0, y:1, z:0};
+                if (validHits[0].face) {
+                    const normVec = validHits[0].face.normal.clone().transformDirection(validHits[0].object.matrixWorld).normalize();
+                    normal = {x: normVec.x, y: normVec.y, z: normVec.z};
+                }
+                this.spawnParticles(endPoint, normal, 'spark');
+                this.spawnParticles(endPoint, normal, 'debris');
             }
 
-            const material = new THREE.LineBasicMaterial({ color: 0xffd27f, transparent: true, opacity: 0.8 });
-            const geometry = new THREE.BufferGeometry().setFromPoints([startPoint, endPoint]);
-            const tracer = new THREE.Line(geometry, material);
-            this.scene.add(tracer);
+            this.spawnTracer(startPoint, endPoint);
+        }
+    }
 
-            const fadeInterval = window.setInterval(() => {
-                if (tracer.material.opacity <= 0) {
-                    this.scene.remove(tracer);
-                    geometry.dispose();
-                    material.dispose();
-                    window.clearInterval(fadeInterval);
-                    return;
-                }
-                tracer.material.opacity -= 0.1;
-            }, 8);
+    spawnTracer(startPoint, endPoint) {
+        const tracer = this.tracers.find(t => !t.active) || this.tracers[0];
+        tracer.active = true;
+        tracer.life = 0;
+        tracer.startPos.copy(startPoint);
+        tracer.endPos.copy(endPoint);
+        tracer.mesh.visible = true;
+        tracer.mesh.material.opacity = 1.0;
+        const distance = startPoint.distanceTo(endPoint);
+        const length = Math.min(distance, 5.0);
+        tracer.mesh.scale.set(1, 1, length);
+    }
+
+    remoteFire(remote) {
+        const startPoint = new THREE.Vector3();
+        const ms = remote.mesh.getObjectByName("muzzleSocket");
+        if (ms) {
+            ms.getWorldPosition(startPoint);
+        } else {
+            remote.mesh.getWorldPosition(startPoint);
+            startPoint.y += 1.3; 
+        }
+        
+        const yaw = remote.mesh.rotation.y;
+        const pitch = remote.mesh.userData.headPivot ? remote.mesh.userData.headPivot.rotation.x : 0;
+        
+        const direction = new THREE.Vector3(
+            -Math.sin(yaw) * Math.cos(pitch),
+            Math.sin(pitch),
+            -Math.cos(yaw) * Math.cos(pitch)
+        ).normalize();
+        
+        const raycaster = new THREE.Raycaster(startPoint, direction);
+        let endPoint = new THREE.Vector3().copy(startPoint).add(direction.clone().multiplyScalar(100));
+        
+        const intersects = raycaster.intersectObjects(this.scene.children, true);
+        const validHits = intersects.filter(hit => hit.object !== remote.mesh && hit.object !== this.localPlayer);
+        if (validHits.length > 0) {
+            endPoint = validHits[0].point;
+            let normal = {x:0, y:1, z:0};
+            if (validHits[0].face) {
+                const normVec = validHits[0].face.normal.clone().transformDirection(validHits[0].object.matrixWorld).normalize();
+                normal = {x: normVec.x, y: normVec.y, z: normVec.z};
+            }
+            this.spawnParticles(endPoint, normal, 'spark');
+            this.spawnParticles(endPoint, normal, 'debris');
+        }
+        
+        this.spawnTracer(startPoint, endPoint);
+    }
+
+    spawnParticles(position, normal = {x:0, y:1, z:0}, type = 'spark') {
+        const count = type === 'spark' ? 12 : (type === 'debris' ? 6 : 4);
+        const baseColor = type === 'spark' ? 0xffdd88 : (type === 'debris' ? 0x888888 : 0xaaaaaa);
+        const normVec = new THREE.Vector3(normal.x, normal.y, normal.z).normalize();
+        
+        for (let i = 0; i < count; i++) {
+            const p = this.particlePool.find(p => !p.active);
+            if (!p) break;
+            p.active = true;
+            p.life = 0;
+            p.maxLife = type === 'spark' ? 0.3 + Math.random() * 0.3 : 0.5 + Math.random() * 0.5;
+            p.mesh.position.copy(position);
+            p.mesh.visible = true;
+            p.mesh.material.color.setHex(baseColor);
+            p.mesh.material.opacity = 1.0;
+            p.type = type;
+            p.gravity = type === 'dust' ? 1.0 : 15.0;
+            
+            const spread = type === 'spark' ? 4.0 : 2.0;
+            p.velocity.set(
+                normVec.x * spread + (Math.random() - 0.5) * spread * 2,
+                normVec.y * spread + (Math.random() - 0.5) * spread * 2 + (type === 'dust' ? 1 : 2),
+                normVec.z * spread + (Math.random() - 0.5) * spread * 2
+            );
+            if (type === 'spark') p.velocity.multiplyScalar(1.5);
+            
+            p.mesh.scale.setScalar(type === 'dust' ? 3.0 : (type === 'debris' ? 1.5 : 0.6));
         }
     }
 
@@ -569,10 +713,11 @@ export class ArenaStrikeRenderer {
             }
             let remote = this.remotePlayers.get(player.playerId);
             if (!remote) {
+                const teamColor = player.team === "TEAM_A" ? 0x66aaff : 0xff6666;
                 remote = {
-                    mesh: this.createPlayerModel(0xe05d44, player.currentWeapon),
+                    mesh: this.createPlayerModel(teamColor, player.currentWeapon),
                     snapshotBuffer: [],
-                    stance: player.state,
+                    stance: player.state || "STANDING",
                     weapon: player.currentWeapon
                 };
                 this.scene.add(remote.mesh);
@@ -580,7 +725,8 @@ export class ArenaStrikeRenderer {
             }
             if (remote.weapon !== player.currentWeapon) {
                 this.scene.remove(remote.mesh);
-                remote.mesh = this.createPlayerModel(0xe05d44, player.currentWeapon);
+                const teamColor = player.team === "TEAM_A" ? 0x66aaff : 0xff6666;
+                remote.mesh = this.createPlayerModel(teamColor, player.currentWeapon);
                 this.scene.add(remote.mesh);
                 remote.weapon = player.currentWeapon;
             }
@@ -730,7 +876,7 @@ export class ArenaStrikeRenderer {
             this.localPlayer.visible = false;
         }
         this.weaponRecoil = 0;
-        this.aiming = false;
+        this.setAiming(false);
         this.isReloading = false;
         this.reloadStartTime = 0;
         if (this.hitMarkerTimeout !== null) {
@@ -739,17 +885,34 @@ export class ArenaStrikeRenderer {
         }
         const marker = document.querySelector("#hit-marker");
         if (marker) marker.hidden = true;
+        
+        if (this.particlePool) {
+            for (const p of this.particlePool) {
+                p.active = false;
+                if (p.mesh) p.mesh.visible = false;
+            }
+        }
+        if (this.tracers) {
+            for (const t of this.tracers) {
+                t.active = false;
+                if (t.mesh) t.mesh.visible = false;
+            }
+        }
     }
 
     applyStance(model, stance) {
-        const scale = {
-            STANDING: 1,
-            CROUCHING: 0.5,
-            PRONE: 0.2,
-            JUMPING: 1.08
-        }[stance] || 1;
-        model.scale.set(1, scale, stance === "PRONE" ? 1.25 : 1);
-        // Removed model.position.y overwrite to allow world-space interpolation
+        const targetScaleY = {
+            STANDING: 1.0,
+            CROUCHING: 0.55,
+            PRONE: 0.25,
+            JUMPING: 1.05
+        }[stance] || 1.0;
+        
+        const targetScaleZ = stance === "PRONE" ? 1.4 : 1.0;
+        
+        // Smoothly interpolate model proportions for an organic transition
+        model.scale.y = THREE.MathUtils.lerp(model.scale.y, targetScaleY, 0.15);
+        model.scale.z = THREE.MathUtils.lerp(model.scale.z, targetScaleZ, 0.15);
     }
 
     playReloadAnimation() {
@@ -758,7 +921,46 @@ export class ArenaStrikeRenderer {
     }
 
     render(deltaSeconds = 0.016) {
-        const targetFov = this.aiming ? 50 : 75;
+        // Update particles
+        for (const p of this.particlePool) {
+            if (p.active) {
+                p.life += deltaSeconds;
+                if (p.life >= p.maxLife) {
+                    p.active = false;
+                    p.mesh.visible = false;
+                } else {
+                    p.velocity.y -= p.gravity * deltaSeconds;
+                    p.mesh.position.addScaledVector(p.velocity, deltaSeconds);
+                    p.mesh.material.opacity = 1.0 - (p.life / p.maxLife);
+                    p.mesh.rotation.x += p.velocity.z * deltaSeconds;
+                    p.mesh.rotation.y += p.velocity.x * deltaSeconds;
+                    if (p.type === 'dust') {
+                        p.mesh.scale.setScalar(3.0 + (p.life / p.maxLife) * 3.0);
+                    }
+                }
+            }
+        }
+        
+        for (const t of this.tracers) {
+            if (t.active) {
+                t.life += deltaSeconds * 3.0; // Life goes 0 to 1
+                if (t.life >= 1.0) {
+                    t.active = false;
+                    t.mesh.visible = false;
+                } else {
+                    const travelSpeed = 80;
+                    const distance = t.startPos.distanceTo(t.endPos);
+                    const currentDist = Math.min(distance, t.life * travelSpeed);
+                    const alpha = distance > 0 ? currentDist / distance : 1;
+                    
+                    t.mesh.position.lerpVectors(t.startPos, t.endPos, alpha);
+                    t.mesh.lookAt(t.endPos);
+                    t.mesh.material.opacity = 1.0 - t.life;
+                }
+            }
+        }
+
+        const targetFov = this.aiming ? (this.currentWeaponType === 'BOLT_ACTION_RIFLE' ? 15 : 60) : 75;
         this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 0.2);
         this.camera.updateProjectionMatrix();
         

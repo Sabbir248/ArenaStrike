@@ -36,7 +36,7 @@ public class LobbyService {
     public LobbyResponse createLobby(CreateLobbyRequest request, Long playerId) {
         Player player = playerRepository.findById(playerId)
                 .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Player not found"));
-        Lobby lobby = new Lobby(nextAvailableRoomCode(), request.roomName(), request.map(), request.playerLimit());
+        Lobby lobby = new Lobby(nextAvailableRoomCode(), request.roomName(), request.map(), request.playerLimit(), request.gameMode());
         lobby.addParticipant(new LobbyParticipant(player));
         return LobbyResponse.from(lobbyRepository.save(lobby), player.getId());
     }

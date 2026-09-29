@@ -3,6 +3,7 @@ package com.arenastrike.realtime.dto;
 public record PlayerState(
         Long playerId,
         String displayName,
+        String team,
         Vector3 position,
         Rotation rotation,
         int health,

@@ -30,6 +30,9 @@ public class Lobby extends BaseEntity {
     @Column(nullable = false)
     private int playerLimit;
 
+    @Column(name = "game_mode", nullable = false, length = 16)
+    private String gameMode;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private LobbyStatus status = LobbyStatus.WAITING;
@@ -41,11 +44,12 @@ public class Lobby extends BaseEntity {
     protected Lobby() {
     }
 
-    public Lobby(String roomCode, String roomName, GameMap map, int playerLimit) {
+    public Lobby(String roomCode, String roomName, GameMap map, int playerLimit, String gameMode) {
         this.roomCode = roomCode;
         this.roomName = roomName;
         this.map = map;
         this.playerLimit = playerLimit;
+        this.gameMode = gameMode;
     }
 
     public void addParticipant(LobbyParticipant participant) {
@@ -68,6 +72,7 @@ public class Lobby extends BaseEntity {
     public String getRoomName() { return roomName; }
     public GameMap getMap() { return map; }
     public int getPlayerLimit() { return playerLimit; }
+    public String getGameMode() { return gameMode; }
     public LobbyStatus getStatus() { return status; }
     public List<LobbyParticipant> getParticipants() { return participants; }
 

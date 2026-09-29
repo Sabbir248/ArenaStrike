@@ -7,6 +7,7 @@ public record CreateLobbyRequest(
         @NotBlank @Size(max = 64) String roomName,
         @NotBlank @Size(max = 32) String displayName,
         @NotNull GameMap map,
-        @Min(2) @Max(10) int playerLimit
+        @Min(2) @Max(10) int playerLimit,
+        @NotBlank @Size(max = 16) String gameMode
 ) {
 }

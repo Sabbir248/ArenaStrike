@@ -25,23 +25,30 @@ public final class GameRoomState {
             new Obstacle(-24, -20, 19, 37), new Obstacle(20, 24, -37, -19));
             
     private static final List<Vector3> WAREHOUSE_SPAWNS = List.of(
-            new Vector3(0, 0, 35), new Vector3(0, 0, -35),
-            new Vector3(15, 0, 35), new Vector3(-15, 0, -35),
-            new Vector3(-15, 0, 35), new Vector3(15, 0, -35),
-            new Vector3(25, 0, 15), new Vector3(-25, 0, -15),
-            new Vector3(-25, 0, 15), new Vector3(25, 0, -15)
+            // Team A side (+Z)
+            new Vector3(0, 0, 35), new Vector3(15, 0, 35),
+            new Vector3(-15, 0, 35), new Vector3(25, 0, 15),
+            new Vector3(-25, 0, 15),
+            // Team B side (-Z)
+            new Vector3(0, 0, -35), new Vector3(-15, 0, -35),
+            new Vector3(15, 0, -35), new Vector3(-25, 0, -15),
+            new Vector3(25, 0, -15)
     );
     private static final List<Vector3> BUNKER_SPAWNS = List.of(
-            new Vector3(0, 0, 45), new Vector3(0, 0, -45),
-            new Vector3(15, 0, 45), new Vector3(-15, 0, -45),
-            new Vector3(-15, 0, 45), new Vector3(15, 0, -45),
-            new Vector3(30, 0, 15), new Vector3(-30, 0, -15),
-            new Vector3(-30, 0, 15), new Vector3(30, 0, -15)
+            // Team A side (+Z)
+            new Vector3(0, 0, 45), new Vector3(15, 0, 45),
+            new Vector3(-15, 0, 45), new Vector3(30, 0, 15),
+            new Vector3(-30, 0, 15),
+            // Team B side (-Z)
+            new Vector3(0, 0, -45), new Vector3(-15, 0, -45),
+            new Vector3(15, 0, -45), new Vector3(-30, 0, -15),
+            new Vector3(30, 0, -15)
     );
             
     private final String roomCode;
     private final GameMap map;
     private final int maxPlayers;
+    private final String gameMode;
     private final ConcurrentHashMap<Long, PlayerState> players = new ConcurrentHashMap<>();
     private final Scoreboard scoreboard = new Scoreboard();
     private final ConcurrentHashMap<Long, PlayerWeaponState> weaponStates = new ConcurrentHashMap<>();
@@ -55,10 +62,11 @@ public final class GameRoomState {
     private volatile long matchEndsAtMillis;
     private volatile MatchOverEvent matchOverEvent;
 
-    GameRoomState(String roomCode, GameMap map, int maxPlayers) {
+    GameRoomState(String roomCode, GameMap map, int maxPlayers, String gameMode) {
         this.roomCode = roomCode;
         this.map = map;
         this.maxPlayers = maxPlayers;
+        this.gameMode = gameMode;
     }
 
     public void addPlayer(PlayerState player) {
@@ -67,9 +75,21 @@ public final class GameRoomState {
             if (roomState == RoomState.FINISHED) {
                 throw new GameStateConflictException("Match is over");
             }
-            Vector3 spawnPoint = nextSpawnPoint();
-            PlayerState spawnedPlayer = new PlayerState(player.playerId(), player.displayName(), spawnPoint,
-                    player.rotation(), player.health(), player.currentWeapon(), player.state());
+            
+            String assignedTeam = null;
+            if (gameMode != null && gameMode.startsWith("TEAM_")) {
+                int teamACount = 0;
+                int teamBCount = 0;
+                for (PlayerState p : players.values()) {
+                    if ("TEAM_A".equals(p.team())) teamACount++;
+                    else if ("TEAM_B".equals(p.team())) teamBCount++;
+                }
+                assignedTeam = (teamACount <= teamBCount) ? "TEAM_A" : "TEAM_B";
+            }
+            
+            Vector3 spawnPoint = nextSpawnPoint(assignedTeam);
+            PlayerState spawnedPlayer = new PlayerState(player.playerId(), player.displayName(), assignedTeam, spawnPoint,
+                    player.rotation(), player.health(), player.currentWeapon(), MovementState.STANDING);
             if (players.putIfAbsent(player.playerId(), spawnedPlayer) != null) {
                 throw new GameStateConflictException("Player is already active in this room");
             }
@@ -81,9 +101,57 @@ public final class GameRoomState {
         }
     }
     
-    private Vector3 nextSpawnPoint() {
+    private Vector3 nextSpawnPoint(String team) {
+        if (team == null || team.equals("FFA")) {
+            // FFA Mode: Distribute spawns evenly along the map perimeter
+            int playerIndex = nextSpawnIndex.getAndIncrement();
+            double radiusX = map == GameMap.MAP_WAREHOUSE ? 30.0 : 40.0;
+            double radiusZ = map == GameMap.MAP_WAREHOUSE ? 30.0 : 40.0;
+            int maxSlots = Math.max(maxPlayers, 4);
+            double angle = (2 * Math.PI / maxSlots) * playerIndex;
+            double x = Math.cos(angle) * radiusX;
+            double z = Math.sin(angle) * radiusZ;
+            return new Vector3(x, 0, z);
+        }
+
         List<Vector3> spawns = map == GameMap.MAP_WAREHOUSE ? WAREHOUSE_SPAWNS : BUNKER_SPAWNS;
-        return spawns.get(nextSpawnIndex.getAndIncrement() % spawns.size());
+        int half = spawns.size() / 2;
+        int startIndex = "TEAM_A".equals(team) ? 0 : half;
+        List<Vector3> candidateSpawns = spawns.subList(startIndex, startIndex + half);
+        
+        // Pick a base spawn point for the team
+        Vector3 chosenBase = candidateSpawns.get(nextSpawnIndex.getAndIncrement() % candidateSpawns.size());
+        
+        // Grid search to ensure strict separation (no overlaps)
+        double bestX = chosenBase.x();
+        double bestZ = chosenBase.z();
+        boolean foundSafe = false;
+        
+        // Concentric grid offsets to spread out players
+        double[] offsets = {0, 2.5, -2.5, 5.0, -5.0, 7.5, -7.5};
+        for(double ox : offsets) {
+            for(double oz : offsets) {
+                double cx = chosenBase.x() + ox;
+                double cz = chosenBase.z() + oz;
+                
+                boolean occupied = players.values().stream().anyMatch(p -> {
+                    if (p.state() == MovementState.DEAD || p.health() <= 0) return false;
+                    double dx = p.position().x() - cx;
+                    double dz = p.position().z() - cz;
+                    return Math.sqrt(dx * dx + dz * dz) < 2.5; // strict 2.5m minimum separation
+                });
+                
+                if (!occupied) {
+                    bestX = cx;
+                    bestZ = cz;
+                    foundSafe = true;
+                    break;
+                }
+            }
+            if (foundSafe) break;
+        }
+
+        return new Vector3(bestX, chosenBase.y(), bestZ);
     }
 
     public void updatePlayer(UpdatePlayerStateCommand update) {
@@ -95,7 +163,7 @@ public final class GameRoomState {
                     throw new GameStateConflictException("Player is not active in this room");
                 }
                 Vector3 safePosition = validatePosition(current.position(), update.position(), update.state(), 0.05);
-                return new PlayerState(current.playerId(), current.displayName(), safePosition,
+                return new PlayerState(current.playerId(), current.displayName(), current.team(), safePosition,
                         update.rotation(), current.health(), update.currentWeapon(), update.state());
             });
         } finally {
@@ -128,7 +196,7 @@ public final class GameRoomState {
                 
                 Vector3 safePosition = validatePosition(current.position(), clientProposed, state, deltaSeconds);
                 verticalVelocity.put(id, velocity);
-                return new PlayerState(id, current.displayName(),
+                return new PlayerState(id, current.displayName(), current.team(),
                         safePosition, input.rotation(),
                         current.health(), input.currentWeapon(), state);
             });
@@ -259,9 +327,9 @@ public final class GameRoomState {
         long stamp = lock.writeLock();
         try {
             return players.computeIfPresent(playerId, (id, current) -> {
-                Vector3 spawnPosition = nextSpawnPoint();
+                Vector3 spawnPosition = nextSpawnPoint(current.team());
 
-                return new PlayerState(current.playerId(), current.displayName(), spawnPosition,
+                return new PlayerState(current.playerId(), current.displayName(), current.team(), spawnPosition,
                         current.rotation(), 100, // Restore HP
                         current.currentWeapon(), MovementState.STANDING); // Reset state
             });
@@ -339,7 +407,7 @@ public final class GameRoomState {
                 remainingHealth[0] = health;
                 MovementState newState = died[0] ? MovementState.DEAD : current.state();
                 return new PlayerState(
-                    current.playerId(), current.displayName(), current.position(),
+                    current.playerId(), current.displayName(), current.team(), current.position(),
                     current.rotation(), health,
                     current.currentWeapon(), newState);
             });
@@ -593,6 +661,12 @@ public final class GameRoomState {
                 return new VerifiedShot("SHOT_VERIFIED", String.valueOf(shooterId),
                         weapon.name(), ammoAfterShot, weaponState.isReloading(), null);
             }
+            
+            // Friendly Fire Protection
+            if (target.team() != null && target.team().equals(shooter.team())) {
+                return new VerifiedShot("SHOT_VERIFIED", String.valueOf(shooterId),
+                        weapon.name(), ammoAfterShot, weaponState.isReloading(), null);
+            }
             int damage = weapon.damageFor(hit.hitLocation());
             boolean instantKill = weapon.isInstantKill(hit.hitLocation());
             
@@ -600,7 +674,7 @@ public final class GameRoomState {
             boolean died = target.health() > 0 && health == 0;
             MovementState newState = died ? MovementState.DEAD : target.state();
             players.put(hit.targetId(), new PlayerState(
-                target.playerId(), target.displayName(), target.position(),
+                target.playerId(), target.displayName(), target.team(), target.position(),
                 target.rotation(), health,
                 target.currentWeapon(), newState));
             
@@ -660,11 +734,17 @@ public final class GameRoomState {
                     weapon.name(), ammoAfterShot, reloading, null);
         }
         
+        // Friendly Fire Protection
+        if (target.team() != null && target.team().equals(shooter.team())) {
+            return new VerifiedShot("SHOT_VERIFIED", String.valueOf(shooterId),
+                    weapon.name(), ammoAfterShot, reloading, null);
+        }
+        
         int health = Math.max(0, target.health() - damage);
         boolean died = target.health() > 0 && health == 0;
         MovementState newState = died ? MovementState.DEAD : target.state();
         players.put(targetId, new PlayerState(
-            target.playerId(), target.displayName(), target.position(),
+            target.playerId(), target.displayName(), target.team(), target.position(),
             target.rotation(), health,
             target.currentWeapon(), newState));
             

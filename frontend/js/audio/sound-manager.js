@@ -2,6 +2,9 @@ export class ArenaStrikeSoundManager {
     constructor() {
         this.context = null;
         this.buffers = null;
+        this.bgm = new Audio("https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3"); // Tactical drone theme
+        this.bgm.loop = true;
+        this.bgm.volume = 0.2;
     }
 
     unlock() {
@@ -9,10 +12,28 @@ export class ArenaStrikeSoundManager {
             this.context = new (window.AudioContext || window.webkitAudioContext)();
             this.listener = this.context.listener;
         }
+        
+        // Try playing lobby music if it's supposed to be playing but was blocked
+        if (this.bgm && this.bgm.paused && document.querySelector("#lobby-screen") && !document.querySelector("#lobby-screen").hidden) {
+            this.playLobbyMusic();
+        }
+
         if (this.context.state === "suspended") {
             return this.context.resume();
         }
         return Promise.resolve();
+    }
+    
+    playLobbyMusic() {
+        if (this.bgm && this.bgm.paused) {
+            this.bgm.play().catch(e => console.warn("Lobby music autoplay prevented:", e));
+        }
+    }
+    
+    stopLobbyMusic() {
+        if (this.bgm && !this.bgm.paused) {
+            this.bgm.pause();
+        }
     }
 
     updateListener(position, rotation) {

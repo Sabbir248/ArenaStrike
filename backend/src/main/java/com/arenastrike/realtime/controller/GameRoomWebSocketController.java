@@ -36,7 +36,7 @@ public class GameRoomWebSocketController {
         if (authenticatedPlayerId == null) return;
         
         // Override client spoofable ID with authenticated ID
-        PlayerState securePlayer = new PlayerState(authenticatedPlayerId, command.player().displayName(), 
+        PlayerState securePlayer = new PlayerState(authenticatedPlayerId, command.player().displayName(), command.player().team(), 
                 command.player().position(), command.player().rotation(), command.player().health(), 
                 command.player().currentWeapon(), command.player().state());
         

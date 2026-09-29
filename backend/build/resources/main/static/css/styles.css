@@ -720,24 +720,24 @@ body {
     text-transform: uppercase;
 }
 
-#mini-scoreboard-table {
+.mini-scoreboard-table {
     width: 100%;
     border-collapse: collapse;
     color: #e2e8f0;
     font-size: 0.9rem;
 }
 
-#mini-scoreboard-table th, #mini-scoreboard-table td {
+.mini-scoreboard-table th, .mini-scoreboard-table td {
     padding: 0.25rem 0.5rem;
     text-align: right;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-#mini-scoreboard-table th:first-child, #mini-scoreboard-table td:first-child {
+.mini-scoreboard-table th:first-child, .mini-scoreboard-table td:first-child {
     text-align: left;
 }
 
-#mini-scoreboard-table th {
+.mini-scoreboard-table th {
     color: #94a3b8;
     font-weight: 600;
     font-size: 0.75rem;
@@ -954,6 +954,70 @@ body {
 #crosshair span:nth-child(3) { left: 0; }
 #crosshair span:nth-child(4) { right: 0; }
 
+/* SCOPE OVERLAYS */
+#sniper-overlay, #red-dot-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#sniper-overlay[hidden], #red-dot-overlay[hidden] {
+    display: none !important;
+}
+
+/* Sniper Scope Styling */
+.sniper-line-h {
+    position: absolute;
+    width: 100%;
+    height: 2px;
+    background: rgba(0, 0, 0, 0.9);
+}
+.sniper-line-v {
+    position: absolute;
+    height: 100%;
+    width: 2px;
+    background: rgba(0, 0, 0, 0.9);
+}
+.sniper-circle {
+    position: absolute;
+    width: 400px;
+    height: 400px;
+    border: 4px solid rgba(0, 0, 0, 0.9);
+    border-radius: 50%;
+}
+.sniper-vignette {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle, transparent 35%, rgba(0,0,0,1) 60%);
+}
+
+/* Red Dot Scope Styling */
+.red-dot-lens {
+    position: absolute;
+    width: 300px;
+    height: 300px;
+    border-radius: 50%;
+    border: 8px solid rgba(25, 25, 25, 0.95);
+    background: radial-gradient(circle, rgba(255,0,0,0.05) 0%, transparent 70%);
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.5), 0 0 15px rgba(0,0,0,0.5);
+}
+.red-dot-center {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    background: #ff0000;
+    border-radius: 50%;
+    box-shadow: 0 0 8px 2px rgba(255, 0, 0, 0.8);
+}
+
 #hit-marker {
     position: absolute;
     z-index: 1;
@@ -964,4 +1028,142 @@ body {
     font-weight: 700;
     letter-spacing: 0.08em;
     text-shadow: 0 1px 3px #000;
+}
+
+/* --- GLASSMORPHISM HUD UPDATES --- */
+.cyber-hud-element {
+    background: rgba(10, 15, 25, 0.4);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5), inset 0 0 10px rgba(255, 255, 255, 0.05);
+    padding: 12px 20px;
+    color: #fff;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    transition: all 0.2s ease-out;
+}
+
+#hud-top-left {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#hud-top-center {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+#hud-bottom-center {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 300px;
+}
+
+.health-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.health-label-wrap {
+    display: flex;
+    justify-content: space-between;
+    font-weight: bold;
+    font-size: 1.1rem;
+    color: #ffcccc;
+}
+
+#health-bar {
+    width: 100%;
+    height: 12px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+#health-bar span {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, #ff4b4b, #ff8b8b);
+    box-shadow: 0 0 10px rgba(255, 75, 75, 0.8);
+    transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#ammo-panel {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+#weapon-name {
+    font-size: 0.9rem;
+    color: #aaccff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.ammo-count {
+    font-size: 2rem;
+    font-weight: 900;
+}
+
+.ammo-count #current-ammo {
+    color: #fff;
+}
+
+.ammo-count #reserve-ammo {
+    color: #8899aa;
+    font-size: 1.2rem;
+}
+
+#hud-top-right {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-end;
+}
+
+#live-scoreboard table {
+    width: 200px;
+    text-align: left;
+    border-collapse: collapse;
+}
+
+#live-scoreboard th, #live-scoreboard td {
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#damage-vignette {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    box-shadow: inset 0 0 150px rgba(255, 0, 0, 0.8);
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+    z-index: 100;
 }

@@ -33,6 +33,13 @@ const movement = { forward: 0, strafe: 0 };
 const playerKills = new Map();
 let yaw = 0;
 let pitch = 0;
+let currentRecoilPitch = 0;
+let targetRecoilPitch = 0;
+let currentRecoilYaw = 0;
+let targetRecoilYaw = 0;
+let shakeTime = 0;
+let shakeIntensity = 0;
+let currentHealthVal = 100;
 let lastTime = performance.now();
 let lastNetworkUpdate = 0;
 let playerVelocityX = 0;
@@ -42,6 +49,7 @@ let onGround = true;
 let stance = "STANDING";
 let currentEyeHeight = 1.7;
 let inputEnabled = true;
+let localSpawnSynced = false;
 let gameRunning = false;
 let animationFrameId = null;
 let teardownComplete = false;
@@ -54,7 +62,18 @@ const MAGAZINE_SIZES = {
     SHOTGUN: 2,
     BOLT_ACTION_RIFLE: 5
 };
+
+const WEAPON_STATS = {
+    ASSAULT_RIFLE: { cooldown: 0.12, recoilPitch: 0.05, recoilYaw: 0.02, fullAuto: true },
+    SMG: { cooldown: 0.075, recoilPitch: 0.03, recoilYaw: 0.015, fullAuto: true },
+    PISTOL: { cooldown: 0.15, recoilPitch: 0.04, recoilYaw: 0.01, fullAuto: false },
+    SHOTGUN: { cooldown: 1.2, recoilPitch: 0.12, recoilYaw: 0.03, fullAuto: false },
+    BOLT_ACTION_RIFLE: { cooldown: 1.5, recoilPitch: 0.10, recoilYaw: 0.02, fullAuto: false }
+};
+
 let currentAmmo = MAGAZINE_SIZES[weapon] || 30;
+let isFiring = false;
+let lastFireTime = 0;
 let playerState = "IDLE";
 let isReloading = false;         // kept in sync by the AMMO_STATE server event
 let reserveAmmo = (MAGAZINE_SIZES[weapon] || 30) * 3;
@@ -328,12 +347,14 @@ function updateTimer(remainingSeconds) {
 }
 
 function updateLiveScoreboard(players) {
-    const scoreboardBody = document.querySelector("#mini-scoreboard-body");
+    const teamABody = document.querySelector("#team-a-body");
+    const teamBBody = document.querySelector("#team-b-body");
     
     const rankedPlayers = players.map(p => {
         return {
             name: p.displayName,
             playerId: p.playerId,
+            team: p.team,
             kills: playerKills.get(p.displayName) || 0
         };
     });
@@ -346,25 +367,53 @@ function updateLiveScoreboard(players) {
         if (localScoreEl) localScoreEl.textContent = localPlayer.kills;
     }
     
-    const opponents = rankedPlayers.filter(p => String(p.playerId) !== String(playerId));
+    const opponents = rankedPlayers.filter(p => String(p.playerId) !== String(playerId) && p.team !== localPlayer?.team);
     if (opponents.length > 0) {
         const oppScoreEl = document.querySelector("#opponent-score");
         if (oppScoreEl) oppScoreEl.textContent = opponents[0].kills;
     }
     
-    if (scoreboardBody) {
-        const top3 = rankedPlayers.slice(0, 3);
-        scoreboardBody.innerHTML = top3.map(p => `
-            <tr>
-                <td>${p.name}</td>
-                <td>${p.kills}</td>
-            </tr>
-        `).join("");
+    const isTeamMode = rankedPlayers.some(p => p.team);
+    const teamContainer = document.getElementById("team-scoreboard-container");
+    const ffaContainer = document.getElementById("ffa-scoreboard-container");
+    if (teamContainer) teamContainer.style.display = isTeamMode ? "flex" : "none";
+    if (ffaContainer) ffaContainer.style.display = isTeamMode ? "none" : "block";
+
+    if (isTeamMode) {
+        if (teamABody) {
+            const teamA = rankedPlayers.filter(p => p.team === "TEAM_A");
+            teamABody.innerHTML = teamA.map(p => `
+                <tr>
+                    <td>${p.name}</td>
+                    <td>${p.kills}</td>
+                </tr>
+            `).join("");
+        }
+        if (teamBBody) {
+            const teamB = rankedPlayers.filter(p => p.team === "TEAM_B");
+            teamBBody.innerHTML = teamB.map(p => `
+                <tr>
+                    <td>${p.name}</td>
+                    <td>${p.kills}</td>
+                </tr>
+            `).join("");
+        }
+    } else {
+        const ffaBody = document.getElementById("ffa-body");
+        if (ffaBody) {
+            ffaBody.innerHTML = rankedPlayers.map(p => `
+                <tr>
+                    <td>${p.name}</td>
+                    <td>${p.kills}</td>
+                </tr>
+            `).join("");
+        }
     }
 }
 
 function stopClientLoops() {
     gameRunning = false;
+    isFiring = false;
     keys.clear();
     movement.forward = 0;
     movement.strafe = 0;
@@ -447,19 +496,9 @@ function triggerReload() {
         updateAmmoDisplay();
     }, 2500);
 }
-function onMouseDown(event) {
-    if (!inputEnabled) return;
-    if (playerState === "RELOADING") return; // Prevent action while reloading
-    if (event.button === 2) {
-        event.preventDefault();
-        sounds.unlock();
-        renderer.setAiming(true);
-        document.querySelector("#crosshair").hidden = true;
-        return;
-    }
-    if (event.button !== 0 || document.pointerLockElement !== canvas) {
-        return;
-    }
+function attemptFire() {
+    if (playerState === "RELOADING") return;
+    
     if (currentAmmo <= 0) {
         if (reserveAmmo > 0) {
             triggerReload();
@@ -469,14 +508,28 @@ function onMouseDown(event) {
         return;
     }
 
+    const now = performance.now() / 1000;
+    const stats = WEAPON_STATS[weapon] || WEAPON_STATS["ASSAULT_RIFLE"];
+    
+    if (now - lastFireTime < stats.cooldown) {
+        return;
+    }
+    
+    lastFireTime = now;
     currentAmmo--;
     updateAmmoDisplay();
 
     const spreadMultiplier = renderer.aiming ? 0.4 : 1.0;
-    const spreadPitch = (Math.random() - 0.5) * 0.04 * spreadMultiplier;
-    const spreadYaw = (Math.random() - 0.5) * 0.04 * spreadMultiplier;
-    const actualPitch = pitch + spreadPitch;
-    const actualYaw = yaw + spreadYaw;
+    const spreadPitch = (Math.random() - 0.5) * stats.recoilPitch * spreadMultiplier;
+    const spreadYaw = (Math.random() - 0.5) * stats.recoilYaw * spreadMultiplier;
+    
+    targetRecoilPitch += stats.recoilPitch * spreadMultiplier;
+    targetRecoilYaw += (Math.random() - 0.5) * stats.recoilYaw * spreadMultiplier;
+    shakeTime = 0.15;
+    shakeIntensity = Math.min(shakeIntensity + 0.015, 0.04);
+    
+    const actualPitch = pitch + currentRecoilPitch + spreadPitch;
+    const actualYaw = yaw + currentRecoilYaw + spreadYaw;
 
     renderer.fireWeapon(actualPitch, actualYaw);
     sounds.fire();
@@ -489,12 +542,32 @@ function onMouseDown(event) {
         });
     }
 }
+
+function onMouseDown(event) {
+    if (!inputEnabled) return;
+    if (playerState === "RELOADING") return; // Prevent action while reloading
+    if (event.button === 2) {
+        event.preventDefault();
+        sounds.unlock();
+        renderer.setAiming(true);
+        return;
+    }
+    if (event.button !== 0 || document.pointerLockElement !== canvas) {
+        return;
+    }
+    
+    // Set continuous fire state or fire once
+    isFiring = true;
+    attemptFire();
+}
 function onMouseUp(event) {
     if (!inputEnabled) return;
+    if (event.button === 0) {
+        isFiring = false;
+    }
     if (event.button === 2) {
         event.preventDefault();
         renderer.setAiming(false);
-        document.querySelector("#crosshair").hidden = false;
     }
 }
 function onContextMenu(event) { event.preventDefault(); }
@@ -505,7 +578,6 @@ function onMouseMove(event) {
     }
     yaw -= event.movementX * 0.002;
     pitch = Math.max(-1.45, Math.min(1.45, pitch - event.movementY * 0.002));
-    renderer.camera.rotation.set(pitch, yaw, 0);
 }
 function detachInputListeners() {
     inputEnabled = false;
@@ -520,19 +592,66 @@ function detachInputListeners() {
     window.removeEventListener("mousemove", onMouseMove);
     if (document.pointerLockElement === canvas) document.exitPointerLock();
 }
-window.addEventListener("keydown", onKeyDown);
-window.addEventListener("keyup", onKeyUp);
-window.addEventListener("blur", onWindowBlur);
-canvas.addEventListener("click", onCanvasClick);
-canvas.addEventListener("mousedown", onMouseDown);
-canvas.addEventListener("mouseup", onMouseUp);
-canvas.addEventListener("contextmenu", onContextMenu);
-window.addEventListener("mousemove", onMouseMove);
+function attachInputListeners() {
+    inputEnabled = true;
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onWindowBlur);
+    canvas.addEventListener("click", onCanvasClick);
+    canvas.addEventListener("mousedown", onMouseDown);
+    canvas.addEventListener("mouseup", onMouseUp);
+    canvas.addEventListener("contextmenu", onContextMenu);
+    window.addEventListener("mousemove", onMouseMove);
+}
+
+// Initial setup
+attachInputListeners();
 
 function updateMovement(deltaSeconds) {
     // W follows the camera forward vector; S reverses it. A/D use camera right.
     movement.forward = Number(keys.has("KeyW")) - Number(keys.has("KeyS"));
     movement.strafe = Number(keys.has("KeyD")) - Number(keys.has("KeyA"));
+
+    const stats = WEAPON_STATS[weapon] || WEAPON_STATS["ASSAULT_RIFLE"];
+    if (isFiring && stats.fullAuto) {
+        attemptFire();
+    }
+
+    // Camera Recoil & Shake Updates
+    targetRecoilPitch += (0 - targetRecoilPitch) * 8 * deltaSeconds;
+    targetRecoilYaw += (0 - targetRecoilYaw) * 8 * deltaSeconds;
+    currentRecoilPitch += (targetRecoilPitch - currentRecoilPitch) * 15 * deltaSeconds;
+    currentRecoilYaw += (targetRecoilYaw - currentRecoilYaw) * 15 * deltaSeconds;
+
+    if (shakeTime > 0) {
+        shakeTime -= deltaSeconds;
+        shakeIntensity += (0 - shakeIntensity) * 5 * deltaSeconds;
+    } else {
+        shakeIntensity = 0;
+    }
+
+    let shakePitch = 0, shakeYaw = 0, shakeRoll = 0;
+    if (shakeIntensity > 0) {
+        shakePitch = (Math.random() - 0.5) * shakeIntensity;
+        shakeYaw = (Math.random() - 0.5) * shakeIntensity;
+        shakeRoll = (Math.random() - 0.5) * shakeIntensity * 0.5;
+    }
+
+    const finalPitch = Math.max(-1.45, Math.min(1.45, pitch + currentRecoilPitch)) + shakePitch;
+    const finalYaw = yaw + currentRecoilYaw + shakeYaw;
+    renderer.camera.rotation.set(finalPitch, finalYaw, shakeRoll);
+
+    // Spawn dust particles at feet when moving
+    if (onGround && (movement.forward !== 0 || movement.strafe !== 0)) {
+        if (Math.random() < 8 * deltaSeconds) {
+            const feetPos = { 
+                x: renderer.camera.position.x, 
+                y: renderer.camera.position.y - currentEyeHeight, 
+                z: renderer.camera.position.z 
+            };
+            renderer.spawnParticles(feetPos, {x: 0, y: 1, z: 0}, 'dust');
+        }
+    }
 
     if (keys.has("Space") && onGround) {
         if (stance === "STANDING") {
@@ -553,23 +672,27 @@ function updateMovement(deltaSeconds) {
     }
     
     const targetEyeHeight = stance === "PRONE" ? 0.65 : stance === "CROUCHING" ? 1.15 : 1.7;
-    currentEyeHeight += (targetEyeHeight - currentEyeHeight) * 10 * deltaSeconds;
+    currentEyeHeight += (targetEyeHeight - currentEyeHeight) * 12 * deltaSeconds;
+
+    let feetY = renderer.camera.position.y - currentEyeHeight;
 
     if (!onGround) {
         verticalVelocity -= 18 * deltaSeconds;
-        renderer.camera.position.y += verticalVelocity * deltaSeconds;
-        if (renderer.camera.position.y <= currentEyeHeight) {
-            renderer.camera.position.y = currentEyeHeight;
+        feetY += verticalVelocity * deltaSeconds;
+        if (feetY <= 0) {
+            feetY = 0;
             verticalVelocity = 0;
             onGround = true;
         }
     } else {
-        renderer.camera.position.y = currentEyeHeight;
+        feetY = 0;
         verticalVelocity = 0;
     }
 
+    renderer.camera.position.y = feetY + currentEyeHeight;
+
     const baseSpeed = 4.8; // Tactical, controlled pace
-    const speedMultiplier = stance === "PRONE" ? 0.25 : stance === "CROUCHING" ? 0.45 : 1.0;
+    const speedMultiplier = stance === "PRONE" ? 0.25 : stance === "CROUCHING" ? 0.50 : 1.0;
     const targetSpeed = baseSpeed * speedMultiplier;
     
     const length = Math.hypot(movement.forward, movement.strafe) || 1;
@@ -596,7 +719,6 @@ function updateMovement(deltaSeconds) {
     const nextX = renderer.camera.position.x + playerVelocityX * deltaSeconds;
     const nextZ = renderer.camera.position.z + playerVelocityZ * deltaSeconds;
 
-    const feetY = renderer.camera.position.y - currentEyeHeight;
     if (renderer.canMoveTo(nextX, renderer.camera.position.z, feetY)) {
         renderer.camera.position.x = nextX;
     } else {
@@ -610,7 +732,7 @@ function updateMovement(deltaSeconds) {
     renderer.updateLocalPlayer(
         {
             x: renderer.camera.position.x,
-            y: renderer.camera.position.y - 0.9,
+            y: feetY,
             z: renderer.camera.position.z
         },
         { x: 0, y: yaw, z: 0 },
@@ -641,13 +763,18 @@ function formatKill(event) {
 async function startGame() {
     gameRunning = true;
     teardownComplete = false;
+    localSpawnSynced = false;
+    stance = "STANDING";
+    attachInputListeners();
     const lobbyScreen = document.querySelector("#lobby-screen");
     const lobbyWaitingScreen = document.querySelector("#lobby-waiting-screen");
     const gameShell = document.querySelector("#game-shell");
+    const matchOverElement = document.querySelector("#match-over");
     
     if (lobbyScreen) lobbyScreen.hidden = true;
     if (lobbyWaitingScreen) lobbyWaitingScreen.style.display = "flex";
     if (gameShell) gameShell.hidden = true;
+    if (matchOverElement) matchOverElement.hidden = true;
 
     const startMatchBtn = document.getElementById("start-match-btn");
     if (startMatchBtn) {
@@ -684,6 +811,12 @@ async function startGame() {
                     const local = state.players.find((player) => player.playerId === playerId);
                     if (local) {
                         updateHealth(local.health);
+                        if (!localSpawnSynced && local.position) {
+                            localSpawnSynced = true;
+                            renderer.camera.position.set(local.position.x, local.position.y + 1.7, local.position.z);
+                            renderer.camera.rotation.set(0, 0, 0);
+                            pitch = 0; yaw = 0;
+                        }
                     }
                     updateLiveScoreboard(state.players);
                 }
@@ -692,7 +825,11 @@ async function startGame() {
             }
             if (state.roomState !== "ACTIVE") {
                 matchTimerElement.textContent = state.roomState === "FINISHED" ? "Match over" : "Waiting for players";
+                if (state.roomState === "FINISHED") {
+                    sounds.playLobbyMusic();
+                }
             } else if (state.remainingSeconds) {
+                sounds.stopLobbyMusic();
                 updateTimer(state.remainingSeconds);
             }
         },
@@ -727,6 +864,7 @@ async function startGame() {
                 const remote = renderer.remotePlayers.get(Number(event.attackerId));
                 if (remote && remote.mesh) {
                     sounds.fire(remote.mesh.position);
+                    renderer.remoteFire(remote);
                 }
             }
         },
@@ -783,6 +921,22 @@ async function startGame() {
 
 function updateHealth(health) {
     const value = Math.max(0, Math.min(100, Number(health) || 0));
+    
+    if (value < currentHealthVal) {
+        shakeTime = 0.3;
+        shakeIntensity = Math.min(shakeIntensity + 0.05, 0.1);
+        
+        // Damage vignette flash
+        const vignette = document.getElementById("damage-vignette");
+        if (vignette) {
+            vignette.style.opacity = '1';
+            setTimeout(() => {
+                vignette.style.opacity = '0';
+            }, 100);
+        }
+    }
+    currentHealthVal = value;
+
     const valText = document.querySelector("#health-value-text");
     if (valText) valText.textContent = String(value);
     
@@ -890,6 +1044,7 @@ function handleUnexpectedDisconnect() {
     document.querySelector("#lobby-error").textContent =
         "Disconnected from server. Please join or create a new room.";
     window.history.replaceState({}, "", "/");
+    sounds.playLobbyMusic();
 }
 
 async function submitLobby(event) {
@@ -920,6 +1075,11 @@ async function submitLobby(event) {
     try {
         const jwtToken = authToken;
 
+        const gameModeSelect = document.getElementById("game-mode-select").value;
+        const modeParts = gameModeSelect.split("_");
+        const gameModeStr = modeParts[0] === "TEAM" ? "TEAM_" + modeParts[1] : modeParts[0] + "_" + modeParts[1];
+        const playerLimitNum = Number(modeParts[1]);
+
         const response = requestedRoom
             ? await fetch(`${API_BASE_URL}/api/lobby/${requestedRoom}/join`, {
                 method: "POST",
@@ -939,7 +1099,8 @@ async function submitLobby(event) {
                     roomName: `${displayName}'s Arena`,
                     displayName,
                     map: String(form.get("map")),
-                    playerLimit: Number(form.get("playerLimit"))
+                    playerLimit: playerLimitNum,
+                    gameMode: gameModeStr
                 })
             });
             
@@ -1005,6 +1166,11 @@ async function submitLobby(event) {
 }
 
 document.querySelector("#lobby-form").addEventListener("submit", submitLobby);
+
+document.addEventListener("click", () => {
+    // A generic global click listener to unlock audio and trigger autoplay
+    sounds.unlock();
+}, { once: true });
 
 if (displayName) {
     completeLogin(displayName);
