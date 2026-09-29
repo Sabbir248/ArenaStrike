@@ -1,6 +1,9 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js";
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/utils/SkeletonUtils.js";
+import { EffectComposer } from "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { MODEL_BASE_URL } from "../config.js";
 import { createTacticalSoldierModel } from "./soldier.js";
 import { createDesertEagle, createAKM, createUMP, createS686, createAWM } from "./weapons.js";
@@ -53,6 +56,24 @@ export class ArenaStrikeRenderer {
         this.renderer.autoClear = false;
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        
+        this.composer = new EffectComposer(this.renderer);
+        const renderPass = new RenderPass(this.scene, this.camera);
+        this.composer.addPass(renderPass);
+        
+        const viewmodelPass = new RenderPass(this.viewmodelScene, this.viewmodelCamera);
+        viewmodelPass.clear = false;
+        const originalRender = viewmodelPass.render;
+        viewmodelPass.render = function(renderer, writeBuffer, readBuffer, deltaTime, maskActive) {
+            renderer.clearDepth();
+            originalRender.call(this, renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+        };
+        this.composer.addPass(viewmodelPass);
+        
+        // Tactical Bloom: Threshold 0.85 ensures only very bright objects (e.g. muzzle flash) glow
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.5, 0.85);
+        this.composer.addPass(bloomPass);
+
         this.loader = new GLTFLoader();
         this.remotePlayers = new Map();
         this.localPlayer = null;
@@ -836,11 +857,7 @@ export class ArenaStrikeRenderer {
                 console.error("[THREE.js Error] Render loop viewmodel crash:", err);
             }
         }
-        
-        this.renderer.clear();
-        this.renderer.render(this.scene, this.camera);
-        this.renderer.clearDepth();
-        this.renderer.render(this.viewmodelScene, this.viewmodelCamera);
+        this.composer.render();
     }
 
     disposeMaterial(material) {
@@ -907,6 +924,9 @@ export class ArenaStrikeRenderer {
                 this.viewmodelCamera.updateProjectionMatrix();
             }
             this.renderer.setSize(width, height, false);
+            if (this.composer) {
+                this.composer.setSize(width, height);
+            }
         }
     }
 }
